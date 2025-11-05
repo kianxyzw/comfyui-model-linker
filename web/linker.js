@@ -42,6 +42,7 @@ class LinkerManagerDialog extends ComfyDialog {
         
         // Create dialog element using $el
         this.element = $el("div.comfy-modal", {
+            id: "model-linker-modal",
             parent: document.body,
             style: {
                 position: "fixed",
@@ -71,6 +72,22 @@ class LinkerManagerDialog extends ComfyDialog {
             this.createContent(),
             this.createFooter()
         ]);
+
+        // Inject style to reduce button font-size by 2px within this modal
+        try {
+            if (!document.getElementById('model-linker-style-buttons')) {
+                const style = $el("style", {
+                    id: 'model-linker-style-buttons',
+                    textContent: `
+                        #model-linker-modal .model-linker-resolve-btn,
+                        #model-linker-modal .comfy-button {
+                            font-size: calc(1em - 2px);
+                        }
+                    `
+                });
+                document.head.appendChild(style);
+            }
+        } catch (e) { /* ignore */ }
 
         // Apply saved size if present and persist future resizes
         try {
@@ -491,7 +508,7 @@ class LinkerManagerDialog extends ComfyDialog {
         this.applyPendingBtn = $el("button", {
             id: "apply-pending-resolutions",
             textContent: "Apply Selected (0)",
-            className: "comfy-button",
+            className: "comfy-button model-linker-resolve-btn",
             onclick: () => this.applyPendingResolutions(),
             style: {
                 padding: "8px 16px"
