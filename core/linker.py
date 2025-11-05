@@ -12,6 +12,7 @@ from .scanner import get_model_files
 from .workflow_analyzer import analyze_workflow_models, identify_missing_models
 from .matcher import find_matches
 from .workflow_updater import update_workflow_nodes
+from .overrides import find_override_model
 
 
 def analyze_and_find_matches(
@@ -85,13 +86,38 @@ def analyze_and_find_matches(
             # Also include other categories as fallback
             candidates.extend([m for m in available_models if m.get('category') != category])
         
-        # Find matches
+        # First: compute fuzzy matches as usual
         matches = find_matches(
             original_path,
             candidates,
             threshold=similarity_threshold,
             max_results=max_matches_per_model
         )
+
+        # Then: check if user has a saved override; inject it as a 99% match (not 100%)
+        override_model = find_override_model(original_path, category, available_models)
+        if override_model is not None:
+            override_path = os.path.normpath(override_model.get('path', '') or '')
+            # Check if already present in matches
+            found = None
+            for m in matches:
+                p = os.path.normpath(m.get('model', {}).get('path', '') or '')
+                if p and p == override_path:
+                    found = m
+                    break
+            if found:
+                # Boost to 100% and mark as override
+                found['similarity'] = 1.0
+                found['confidence'] = 100.0
+                found['is_override'] = True
+            else:
+                matches.append({
+                    'model': override_model,
+                    'filename': override_model.get('filename'),
+                    'similarity': 1.0,
+                    'confidence': 100.0,
+                    'is_override': True,
+                })
         
         # Deduplicate matches by absolute path - same physical file should only appear once
         # This handles cases where the same file exists in multiple base directories

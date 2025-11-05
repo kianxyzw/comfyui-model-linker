@@ -7,6 +7,7 @@
 """
 
 import logging
+import json
 
 # Web directory for JavaScript interface
 WEB_DIRECTORY = "./web"
@@ -57,6 +58,7 @@ class ModelLinkerExtension:
             try:
                 from .core.linker import analyze_and_find_matches, apply_resolution
                 from .core.scanner import get_model_files
+                from .core.overrides import record_override, load_overrides, get_overrides_path
             except ImportError as e:
                 self.logger.error(f"Model Linker: Could not import core modules: {e}")
                 return False
@@ -105,8 +107,60 @@ class ModelLinkerExtension:
                             status=400
                         )
                     
+                    # Make a deep copy of workflow to recover original widget values if needed
+                    try:
+                        workflow_before = json.loads(json.dumps(workflow_json))
+                    except Exception:
+                        workflow_before = None
+
                     # Apply resolutions
                     updated_workflow = apply_resolution(workflow_json, resolutions)
+
+                    # Persist user choices as overrides (so next time we know the correct match)
+                    try:
+                        # helper to fetch the pre-update widget value
+                        def _get_original_value(wf, node_id, widget_index, subgraph_id=None, is_top_level=None):
+                            try:
+                                if not wf:
+                                    return None
+                                # Decide where to look for node
+                                if is_top_level is False or (is_top_level is None and subgraph_id):
+                                    # Search subgraph definitions
+                                    defs = (wf.get('definitions') or {}).get('subgraphs') or []
+                                    for sg in defs:
+                                        if sg.get('id') == subgraph_id:
+                                            for n in sg.get('nodes') or []:
+                                                if n.get('id') == node_id:
+                                                    w = n.get('widgets_values') or []
+                                                    return w[widget_index] if 0 <= widget_index < len(w) else None
+                                # Fallback/top-level
+                                for n in wf.get('nodes') or []:
+                                    if n.get('id') == node_id:
+                                        w = n.get('widgets_values') or []
+                                        return w[widget_index] if 0 <= widget_index < len(w) else None
+                            except Exception:
+                                return None
+                            return None
+
+                        for res in resolutions:
+                            # Expect original_path from client; otherwise derive from pre-update workflow
+                            original_path = res.get('original_path')
+                            if not original_path:
+                                original_path = _get_original_value(
+                                    workflow_before,
+                                    res.get('node_id'),
+                                    res.get('widget_index', 0),
+                                    res.get('subgraph_id'),
+                                    res.get('is_top_level')
+                                )
+                            category = res.get('category')
+                            resolved_model = res.get('resolved_model')
+                            resolved_path = res.get('resolved_path')
+                            if original_path and (resolved_model or resolved_path):
+                                record_override(original_path, category, resolved_model, resolved_path)
+                    except Exception as e:
+                        # Do not fail the request if persisting overrides fails
+                        self.logger.warning(f"Model Linker: Failed to record overrides: {e}")
                     
                     return web.json_response({
                         'workflow': updated_workflow,
@@ -131,6 +185,27 @@ class ModelLinkerExtension:
                         {'error': str(e)},
                         status=500
                     )
+
+            @routes.get("/model_linker/overrides")
+            async def get_overrides(request):
+                """Return current overrides and the file path used for persistence."""
+                try:
+                    doc = load_overrides()
+                    path = get_overrides_path()
+                    exists = False
+                    try:
+                        import os
+                        exists = os.path.exists(path)
+                    except Exception:
+                        pass
+                    return web.json_response({
+                        'path': path,
+                        'exists': exists,
+                        'overrides': doc,
+                    })
+                except Exception as e:
+                    self.logger.error(f"Model Linker get_overrides error: {e}", exc_info=True)
+                    return web.json_response({'error': str(e)}, status=500)
             
             self.routes_setup = True
             self.logger.info("Model Linker: API routes registered successfully")

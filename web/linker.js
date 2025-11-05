@@ -33,6 +33,9 @@ class LinkerManagerDialog extends ComfyDialog {
         super();
         this.currentWorkflow = null;
         this.missingModels = [];
+        this.allModels = null; // list of all available models for dropdown
+        this.pendingResolutions = [];
+        this.pendingIndex = new Map(); // key -> index in pendingResolutions
         
         // Create dialog element using $el
         this.element = $el("div.comfy-modal", {
@@ -118,7 +121,8 @@ class LinkerManagerDialog extends ComfyDialog {
     }
     
     createFooter() {
-        return $el("div", {
+        // Create buttons container
+        const footer = $el("div", {
             style: {
                 padding: "16px",
                 borderTop: "1px solid var(--border-color)",
@@ -126,25 +130,77 @@ class LinkerManagerDialog extends ComfyDialog {
                 justifyContent: "flex-end",
                 gap: "8px"
             }
-        }, [
-            $el("button", {
-                textContent: "Auto-Resolve 100% Matches",
-                onclick: () => this.autoResolve100Percent(),
-                className: "comfy-button",
-                style: {
-                    padding: "8px 16px"
-                }
-            })
-        ]);
+        });
+
+        // Auto resolve 100%
+        const autoBtn = $el("button", {
+            textContent: "Auto-Resolve 100% Matches",
+            onclick: () => this.autoResolve100Percent(),
+            className: "comfy-button",
+            style: {
+                padding: "8px 16px"
+            }
+        });
+
+        // Apply pending resolutions
+        this.applyPendingBtn = $el("button", {
+            id: "apply-pending-resolutions",
+            textContent: "Apply Selected (0)",
+            className: "comfy-button",
+            onclick: () => this.applyPendingResolutions(),
+            style: {
+                padding: "8px 16px"
+            }
+        });
+
+        footer.appendChild(this.applyPendingBtn);
+        footer.appendChild(autoBtn);
+        return footer;
     }
     
     async show() {
         this.element.style.display = "flex";
+        await this.ensureAllModelsLoaded();
         await this.loadWorkflowData();
     }
     
     close() {
         this.element.style.display = "none";
+    }
+
+    /**
+     * Ensure all models are loaded for the dropdown.
+     */
+    async ensureAllModelsLoaded() {
+        if (this.allModels && this.allModels.length) return;
+        try {
+            const resp = await api.fetchApi('/model_linker/models');
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const models = await resp.json();
+            const list = Array.isArray(models) ? models : [];
+            // Build labels and sort alphabetically
+            this.allModels = list.map((m) => ({
+                ...m,
+                __label: `${m.category ? m.category + ': ' : ''}${m.relative_path || m.filename || ''}`
+            })).sort((a, b) => (a.__label || '').localeCompare(b.__label || ''));
+        } catch (e) {
+            console.warn('Model Linker: could not load all models', e);
+            this.allModels = [];
+        }
+    }
+
+    /**
+     * Simple debounce helper: returns a function that waits for `wait` ms after
+     * the last call before invoking `callback`.
+     */
+    debounce(callback, wait = 250) {
+        let t = null;
+        return (...args) => {
+            if (t) clearTimeout(t);
+            t = setTimeout(() => {
+                callback.apply(this, args);
+            }, wait);
+        };
     }
 
     /**
@@ -265,9 +321,24 @@ class LinkerManagerDialog extends ComfyDialog {
             const otherMatches = filteredMatches.filter(m => m.confidence < 100 && m.confidence >= 70);
             
             // Match the same logic as renderMissingModel
-            const matchesToShow = perfectMatches.length > 0 
-                ? perfectMatches 
-                : otherMatches.sort((a, b) => b.confidence - a.confidence).slice(0, 5);
+            const savedMatches = filteredMatches.filter(m => m.is_override);
+            let matchesToShow = null;
+            if (perfectMatches.length > 0) {
+                // Show 100% matches, but always include saved matches as well
+                const combined = [...perfectMatches];
+                for (const sm of savedMatches) {
+                    const p = sm.model?.path;
+                    if (!combined.some(x => x.model?.path === p)) combined.push(sm);
+                }
+                matchesToShow = combined;
+            } else {
+                matchesToShow = otherMatches.sort((a, b) => b.confidence - a.confidence).slice(0, 5);
+                // Ensure saved matches are included even if outside top 5
+                for (const sm of savedMatches) {
+                    const p = sm.model?.path;
+                    if (!matchesToShow.some(x => x.model?.path === p)) matchesToShow.push(sm);
+                }
+            }
             
             // Sort: 100% matches first, then by confidence descending (same as renderMissingModel)
             const sortedMatches = matchesToShow.sort((a, b) => {
@@ -276,21 +347,68 @@ class LinkerManagerDialog extends ComfyDialog {
                 return b.confidence - a.confidence;
             });
             
-            // Find the highest confidence match (even if not 100%)
-            const highestConfidenceMatch = sortedMatches.length > 0 ? sortedMatches[0] : null;
-            
+            // Attach listener for all displayed matches so the user can pick explicitly
             sortedMatches.forEach((match, matchIndex) => {
-                // Only attach listener if this match would have a button (100% or highest confidence)
-                if (match.confidence === 100 || match === highestConfidenceMatch) {
-                    const buttonId = `resolve-${missing.node_id}-${missing.widget_index}-${matchIndex}`;
-                    const resolveButton = container.querySelector(`#${buttonId}`);
-                    if (resolveButton) {
-                        resolveButton.addEventListener('click', () => {
-                            this.resolveModel(missing, match.model);
-                        });
-                    }
+                const buttonId = `resolve-${missing.node_id}-${missing.widget_index}-${matchIndex}`;
+                const resolveButton = container.querySelector(`#${buttonId}`);
+                if (resolveButton) {
+                    resolveButton.addEventListener('click', () => {
+                        this.queueResolution(missing, match.model);
+                    });
                 }
             });
+
+            // Wire up all-models search + dropdown
+            const searchId = `search-all-${missing.node_id}-${missing.widget_index}`;
+            const selectAllId = `select-all-${missing.node_id}-${missing.widget_index}`;
+            const resolveAllId = `resolve-all-${missing.node_id}-${missing.widget_index}`;
+            const searchEl = container.querySelector(`#${searchId}`);
+            const selectAllEl = container.querySelector(`#${selectAllId}`);
+            const resolveAllBtn = container.querySelector(`#${resolveAllId}`);
+
+            const allModels = Array.isArray(this.allModels) ? this.allModels : [];
+            const buildLabel = (m) => `${m.category ? m.category + ': ' : ''}${m.relative_path || m.filename || ''}`;
+
+            const populateAllOptions = (filterText) => {
+                if (!selectAllEl) return;
+                const f = (filterText || '').toLowerCase();
+                const filtered = f
+                    ? allModels.filter(m => buildLabel(m).toLowerCase().includes(f))
+                    : allModels;
+                // Build options HTML
+                let opts = '';
+                for (let i = 0; i < filtered.length; i++) {
+                    const m = filtered[i];
+                    const label = buildLabel(m);
+                    // use index in allModels for value; keep stable mapping
+                    const valueIndex = allModels.indexOf(m);
+                    if (valueIndex >= 0) {
+                        opts += `<option value="${valueIndex}">${label}</option>`;
+                    }
+                }
+                selectAllEl.innerHTML = opts;
+            };
+
+            if (selectAllEl) {
+                populateAllOptions('');
+            }
+            if (searchEl) {
+                const debouncedFilter = this.debounce(() => {
+                    populateAllOptions(searchEl.value);
+                }, 250);
+                searchEl.addEventListener('input', debouncedFilter);
+            }
+            if (resolveAllBtn && selectAllEl) {
+                resolveAllBtn.addEventListener('click', () => {
+                    const idx = parseInt(selectAllEl.value, 10);
+                    if (!isNaN(idx) && idx >= 0 && idx < allModels.length) {
+                        const chosenModel = allModels[idx];
+                        if (chosenModel) {
+                            this.queueResolution(missing, chosenModel);
+                        }
+                    }
+                });
+            }
         });
     }
 
@@ -304,7 +422,7 @@ class LinkerManagerDialog extends ComfyDialog {
         const filteredMatches = allMatches.filter(m => m.confidence >= 70);
         const hasMatches = filteredMatches.length > 0;
 
-        let html = `<div style="border: 1px solid var(--border-color, #444); padding: 12px; border-radius: 4px;">`;
+        let html = `<div id="missing-${missing.node_id}-${missing.widget_index}" style="border: 1px solid var(--border-color, #444); padding: 12px; border-radius: 4px;">`;
         
         // Display subgraph name as primary identifier if available, otherwise show node type
         // A node type that's a UUID indicates it's a subgraph instance
@@ -331,10 +449,23 @@ class LinkerManagerDialog extends ComfyDialog {
             const perfectMatches = filteredMatches.filter(m => m.confidence === 100);
             const otherMatches = filteredMatches.filter(m => m.confidence < 100 && m.confidence >= 70);
             
-            // If we have 100% matches, only show those. Otherwise, show other matches sorted by confidence
-            const matchesToShow = perfectMatches.length > 0 
-                ? perfectMatches 
-                : otherMatches.sort((a, b) => b.confidence - a.confidence).slice(0, 5);
+            // If we have 100% matches, show them AND always include saved matches as well.
+            const savedMatches = filteredMatches.filter(m => m.is_override);
+            let matchesToShow = null;
+            if (perfectMatches.length > 0) {
+                const combined = [...perfectMatches];
+                for (const sm of savedMatches) {
+                    const p = sm.model?.path;
+                    if (!combined.some(x => x.model?.path === p)) combined.push(sm);
+                }
+                matchesToShow = combined;
+            } else {
+                matchesToShow = otherMatches.sort((a, b) => b.confidence - a.confidence).slice(0, 5);
+                for (const sm of savedMatches) {
+                    const p = sm.model?.path;
+                    if (!matchesToShow.some(x => x.model?.path === p)) matchesToShow.push(sm);
+                }
+            }
             
             html += `<div style="margin-top: 12px;"><strong>Suggested Matches:</strong></div>`;
             html += '<ul style="margin: 8px 0; padding-left: 20px;">';
@@ -353,17 +484,18 @@ class LinkerManagerDialog extends ComfyDialog {
                 const match = sortedMatches[matchIndex];
                 const buttonId = `resolve-${missing.node_id}-${missing.widget_index}-${matchIndex}`;
                 html += `<li style="margin: 4px 0;">`;
-                html += `<code>${match.model?.relative_path || match.filename}</code> `;
-                html += `<span style="color: ${match.confidence === 100 ? 'green' : 'orange'};">
-                    (${match.confidence}% confidence)
-                </span>`;
-                // Show resolve button for 100% matches OR for the highest confidence match (even if not 100%)
-                if (match.confidence === 100 || match === highestConfidenceMatch) {
-                    html += ` <button id="${buttonId}" 
-                        class="model-linker-resolve-btn" style="margin-left: 8px; padding: 4px 8px;">
-                        Resolve
-                    </button>`;
+                const label = match.model?.relative_path || match.filename;
+                const isSaved = !!match.is_override;
+                html += `<code>${label}</code> `;
+                html += `<span style="color: ${match.confidence === 100 ? 'green' : 'orange'};">\n                    (${match.confidence}% confidence)\n                </span>`;
+                if (isSaved) {
+                    html += ` <span style="color:#0aa96e; font-weight:600;">(saved)</span>`;
                 }
+                // Always provide a Resolve button so the user can pick explicitly
+                html += ` <button id="${buttonId}" 
+                        class="model-linker-resolve-btn" style="margin-left: 8px; padding: 4px 8px;">
+                        Select
+                    </button>`;
                 html += `</li>`;
             }
             
@@ -379,6 +511,22 @@ class LinkerManagerDialog extends ComfyDialog {
         } else {
             html += `<div style="color: orange; margin-top: 8px;">No matches found.</div>`;
         }
+
+        // Always show a compact summary and the full-model search picker
+        html += `<div class="model-linker-missing-summary" style="margin: 8px 0; padding: 8px; border: 1px dashed var(--border-color, #444); border-radius: 4px; background: var(--comfy-input-bg, #2f2f2f);">`;
+        html += `<div><strong>Missing Model:</strong> <code>${missing.original_path}</code></div>`;
+        html += `<div><strong>Category:</strong> ${missing.category || 'unknown'}</div>`;
+        html += `</div>`;
+
+        const searchId = `search-all-${missing.node_id}-${missing.widget_index}`;
+        const selectAllId = `select-all-${missing.node_id}-${missing.widget_index}`;
+        const resolveAllId = `resolve-all-${missing.node_id}-${missing.widget_index}`;
+        html += `<div style="margin-top: 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">`;
+        html += `<label for="${searchId}" style="opacity: 0.9;">Search all models:</label>`;
+        html += `<input id="${searchId}" type="text" placeholder="type to filter..." style="min-width: 220px; padding: 4px;" />`;
+        html += `<select id="${selectAllId}" class="model-linker-select" size="8" style="min-width: 360px; max-width: 680px;"></select>`;
+        html += `<button id="${resolveAllId}" class="model-linker-resolve-btn" style="padding: 4px 8px;">Select from list</button>`;
+        html += `</div>`;
 
         html += '</div>';
         return html;
@@ -498,65 +646,49 @@ class LinkerManagerDialog extends ComfyDialog {
     }
 
     /**
-     * Resolve a single model
+     * Queue a single resolution (do not call backend yet)
      */
-    async resolveModel(missing, resolvedModel) {
+    queueResolution(missing, resolvedModel) {
         if (!resolvedModel) {
-            this.showNotification('No resolved model selected', 'error');
+            this.showNotification('No model selected', 'error');
             return;
         }
 
-        try {
-            const workflow = this.getCurrentWorkflow();
-            if (!workflow) {
-                this.showNotification('No workflow loaded', 'error');
-                return;
-            }
+        const resolution = {
+            node_id: missing.node_id,
+            widget_index: missing.widget_index,
+            resolved_path: resolvedModel.path,
+            category: missing.category,
+            resolved_model: resolvedModel,
+            original_path: missing.original_path,
+            subgraph_id: missing.subgraph_id,
+            is_top_level: missing.is_top_level
+        };
 
-            const resolution = {
-                node_id: missing.node_id,
-                widget_index: missing.widget_index,
-                resolved_path: resolvedModel.path,
-                category: missing.category,
-                resolved_model: resolvedModel,
-                subgraph_id: missing.subgraph_id,  // Include subgraph_id for subgraph nodes
-                is_top_level: missing.is_top_level  // True for top-level nodes, False for nodes in subgraph definitions
-            };
-
-            const response = await api.fetchApi('/model_linker/resolve', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    workflow,
-                    resolutions: [resolution]
-                })
-            });
-
-            if (!response.ok) {
-                throw new Error(`API error: ${response.status}`);
-            }
-
-            const data = await response.json();
-            
-            if (data.success) {
-                // Update workflow in ComfyUI
-                await this.updateWorkflowInComfyUI(data.workflow);
-                
-                // Show success notification
-                const modelName = resolvedModel.relative_path || resolvedModel.filename || 'model';
-                this.showNotification(`✓ Model linked successfully: ${modelName}`, 'success');
-                
-                // Reload dialog using the updated workflow from API response
-                // This ensures we're analyzing the correct updated workflow
-                await this.loadWorkflowData(data.workflow);
-            } else {
-                this.showNotification('Failed to resolve model: ' + (data.error || 'Unknown error'), 'error');
-            }
-
-        } catch (error) {
-            console.error('Model Linker: Error resolving model:', error);
-            this.showNotification('Error resolving model: ' + error.message, 'error');
+        const key = `${resolution.node_id}:${resolution.widget_index}:${resolution.subgraph_id || ''}:${resolution.is_top_level ? 'T' : 'F'}`;
+        if (this.pendingIndex.has(key)) {
+            // replace existing selection for this slot
+            const idx = this.pendingIndex.get(key);
+            this.pendingResolutions[idx] = resolution;
+        } else {
+            this.pendingIndex.set(key, this.pendingResolutions.length);
+            this.pendingResolutions.push(resolution);
         }
+
+        // Mark block as queued
+        try {
+            const blockId = `missing-${missing.node_id}-${missing.widget_index}`;
+            const block = document.getElementById(blockId);
+            if (block && !block.querySelector('.queued-badge')) {
+                const badge = document.createElement('div');
+                badge.className = 'queued-badge';
+                badge.style.cssText = 'margin-top:8px;color:#0aa96e;font-weight:600;';
+                badge.textContent = 'Queued for linking';
+                block.appendChild(badge);
+            }
+        } catch (e) { /* ignore DOM errors */ }
+
+        this.updateApplyPendingButton();
     }
 
     /**
@@ -599,6 +731,7 @@ class LinkerManagerDialog extends ComfyDialog {
                         resolved_path: perfectMatch.model.path,
                         category: missing.category,
                         resolved_model: perfectMatch.model,
+                        original_path: missing.original_path,
                         subgraph_id: missing.subgraph_id,  // Include subgraph_id for subgraph nodes
                         is_top_level: missing.is_top_level  // True for top-level nodes, False for nodes in subgraph definitions
                     });
@@ -647,6 +780,57 @@ class LinkerManagerDialog extends ComfyDialog {
             console.error('Model Linker: Error auto-resolving:', error);
             this.showNotification('Error auto-resolving: ' + error.message, 'error');
         }
+    }
+
+    /**
+     * Apply all queued resolutions in a single backend call
+     */
+    async applyPendingResolutions() {
+        const list = this.pendingResolutions || [];
+        if (!list.length) {
+            this.showNotification('No selections queued', 'error');
+            return;
+        }
+
+        try {
+            const workflow = this.getCurrentWorkflow();
+            if (!workflow) {
+                this.showNotification('No workflow loaded', 'error');
+                return;
+            }
+
+            const response = await api.fetchApi('/model_linker/resolve', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ workflow, resolutions: list })
+            });
+
+            if (!response.ok) throw new Error(`API error: ${response.status}`);
+
+            const data = await response.json();
+            if (data.success) {
+                await this.updateWorkflowInComfyUI(data.workflow);
+                this.showNotification(`✓ Linked ${list.length} selection${list.length>1?'s':''}`, 'success');
+                // Clear queue and refresh analysis
+                this.pendingResolutions = [];
+                this.pendingIndex = new Map();
+                this.updateApplyPendingButton();
+                await this.loadWorkflowData(data.workflow);
+            } else {
+                this.showNotification('Failed to apply selections: ' + (data.error || 'Unknown error'), 'error');
+            }
+        } catch (e) {
+            console.error('Model Linker: applyPendingResolutions error', e);
+            this.showNotification('Error applying selections: ' + e.message, 'error');
+        }
+    }
+
+    updateApplyPendingButton() {
+        if (!this.applyPendingBtn) return;
+        const n = (this.pendingResolutions || []).length;
+        this.applyPendingBtn.textContent = `Apply Selected (${n})`;
+        this.applyPendingBtn.disabled = n === 0;
+        this.applyPendingBtn.style.opacity = n === 0 ? '0.6' : '1';
     }
 
     /**
@@ -887,4 +1071,3 @@ app.registerExtension({
     name: "Model Linker",
     setup: modelLinker.setup
 });
-
