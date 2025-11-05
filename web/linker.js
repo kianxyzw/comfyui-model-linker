@@ -222,7 +222,8 @@ class LinkerManagerDialog extends ComfyDialog {
                 gap: "12px",
                 padding: "16px",
                 flex: "1",
-                minHeight: "0"
+                minHeight: "0",
+                alignItems: "stretch"
             }
         });
 
@@ -239,8 +240,8 @@ class LinkerManagerDialog extends ComfyDialog {
             id: "model-linker-queue",
             style: {
                 width: "320px",
-                minWidth: "280px",
-                maxWidth: "360px",
+                minWidth: "240px",
+                maxWidth: "70%",
                 borderLeft: "1px solid var(--border-color)",
                 paddingLeft: "12px",
                 display: "flex",
@@ -250,8 +251,41 @@ class LinkerManagerDialog extends ComfyDialog {
             this.createQueuePanel()
         ]);
 
+        // Splitter between content and queue
+        this.splitterElement = $el("div", {
+            id: "model-linker-splitter",
+            title: "Drag to resize panels",
+            style: {
+                cursor: "col-resize",
+                width: "6px",
+                minWidth: "6px",
+                background: "var(--border-color)",
+                opacity: "0.4",
+                borderRadius: "3px"
+            },
+            ondragstart: (e) => e.preventDefault()
+        });
+
         body.appendChild(this.contentElement);
+        body.appendChild(this.splitterElement);
         body.appendChild(this.queueElement);
+
+        // Restore saved queue width and wire splitter
+        try {
+            const savedSplit = localStorage.getItem('model_linker_split_w');
+            if (savedSplit) {
+                const w = parseInt(savedSplit, 10);
+                if (!isNaN(w) && w > 0) {
+                    this.queueElement.style.width = `${w}px`;
+                }
+            }
+        } catch (e) {}
+
+        try {
+            const onSplitMouseDown = (e) => this.startSplitDrag(e);
+            this.splitterElement.addEventListener('mousedown', onSplitMouseDown);
+            this._splitterMouseDown = onSplitMouseDown;
+        } catch (e) {}
         return body;
     }
 
@@ -289,7 +323,7 @@ class LinkerManagerDialog extends ComfyDialog {
             }
         });
 
-        const panel = $el("div", { style: { display: "flex", flexDirection: "column", minHeight: "0" } }, [this.queueHeader, this.queueList]);
+        const panel = $el("div", { style: { display: "flex", flexDirection: "column", minHeight: "0", flex: "1 1 auto" } }, [this.queueHeader, this.queueList]);
         return panel;
     }
 
@@ -504,6 +538,51 @@ class LinkerManagerDialog extends ComfyDialog {
             localStorage.setItem('model_linker_modal_pos', JSON.stringify({ top: Math.round(rect.top), left: Math.round(rect.left) }));
         } catch (e) { /* ignore */ }
         // Restore selection
+        try { document.body.style.userSelect = this._prevUserSelect || ''; } catch (e) {}
+    }
+
+    // Begin split drag for resizable panels
+    startSplitDrag(e) {
+        try {
+            if (!this.queueElement) return;
+            const rect = this.queueElement.getBoundingClientRect();
+            const body = document.getElementById('model-linker-body');
+            const bodyRect = body ? body.getBoundingClientRect() : { width: window.innerWidth };
+            this._splitDragging = true;
+            this._splitStart = {
+                x: e.clientX,
+                startWidth: rect.width,
+                containerWidth: bodyRect.width
+            };
+            this._prevUserSelect = document.body.style.userSelect;
+            document.body.style.userSelect = 'none';
+            this._onSplitMove = (ev) => this.onSplitDrag(ev);
+            this._onSplitUp = () => this.endSplitDrag();
+            document.addEventListener('mousemove', this._onSplitMove);
+            document.addEventListener('mouseup', this._onSplitUp, { once: true });
+        } catch (err) { /* ignore */ }
+    }
+
+    onSplitDrag(e) {
+        if (!this._splitDragging || !this._splitStart || !this.queueElement) return;
+        const dx = e.clientX - this._splitStart.x;
+        // Dragging right (dx>0) should decrease right panel width; left increases
+        let newW = this._splitStart.startWidth - dx;
+        const minW = 240;
+        const maxW = Math.max(minW, Math.floor(this._splitStart.containerWidth - 360));
+        if (newW < minW) newW = minW;
+        if (newW > maxW) newW = maxW;
+        this.queueElement.style.width = `${Math.round(newW)}px`;
+    }
+
+    endSplitDrag() {
+        if (!this._splitDragging) return;
+        this._splitDragging = false;
+        document.removeEventListener('mousemove', this._onSplitMove);
+        try {
+            const rect = this.queueElement.getBoundingClientRect();
+            localStorage.setItem('model_linker_split_w', String(Math.round(rect.width)));
+        } catch (e) {}
         try { document.body.style.userSelect = this._prevUserSelect || ''; } catch (e) {}
     }
 
@@ -787,6 +866,33 @@ class LinkerManagerDialog extends ComfyDialog {
             if (locateBtn && missing.is_top_level !== false) {
                 locateBtn.addEventListener('click', () => this.locateNodeInGraph(missing.node_id));
             }
+
+            // Apply saved size to search box and persist on resize
+            const searchBoxId = `searchbox-${missing.node_id}-${missing.widget_index}`;
+            const searchBox = container.querySelector(`#${searchBoxId}`);
+            if (searchBox) {
+                try {
+                    const saved = localStorage.getItem('model_linker_searchbox_size');
+                    if (saved) {
+                        const { w, h } = JSON.parse(saved);
+                        if (w && h) {
+                            searchBox.style.width = `${w}px`;
+                            searchBox.style.height = `${h}px`;
+                        }
+                    }
+                    if (window.ResizeObserver) {
+                        const ro = new ResizeObserver((entries) => {
+                            for (const entry of entries) {
+                                const rect = entry.target.getBoundingClientRect();
+                                const w = Math.round(rect.width);
+                                const h = Math.round(rect.height);
+                                localStorage.setItem('model_linker_searchbox_size', JSON.stringify({ w, h }));
+                            }
+                        });
+                        ro.observe(searchBox);
+                    }
+                } catch (e) { /* ignore */ }
+            }
         });
     }
 
@@ -924,11 +1030,14 @@ class LinkerManagerDialog extends ComfyDialog {
         const searchId = `search-all-${missing.node_id}-${missing.widget_index}`;
         const selectAllId = `select-all-${missing.node_id}-${missing.widget_index}`;
         const resolveAllId = `resolve-all-${missing.node_id}-${missing.widget_index}`;
-        html += `<div style="margin-top: 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">`;
+        const searchBoxId = `searchbox-${missing.node_id}-${missing.widget_index}`;
+        html += `<div style="margin-top: 10px; display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap;">`;
+        html += `<div id="${searchBoxId}" class="model-linker-searchbox" style="resize: both; overflow: auto; min-width: 260px; min-height: 140px; width: 360px; height: 200px; border: 1px solid var(--border-color); border-radius: 4px; padding: 8px; display: flex; flex-direction: column; gap: 6px; background: var(--comfy-input-bg, #2f2f2f);">`;
         html += `<label for="${searchId}" style="opacity: 0.9;">Search all models:</label>`;
-        html += `<input id="${searchId}" type="text" placeholder="type to filter..." style="min-width: 220px; padding: 4px;" />`;
-        html += `<select id="${selectAllId}" class="model-linker-select" size="8" style="min-width: 360px; max-width: 680px;"></select>`;
-        html += `<button id="${resolveAllId}" class="model-linker-resolve-btn" style="padding: 4px 8px;">Select from list</button>`;
+        html += `<input id="${searchId}" type="text" placeholder="type to filter..." style="padding: 4px; width: 100%; box-sizing: border-box;" />`;
+        html += `<select id="${selectAllId}" class="model-linker-select" size="8" style="flex: 1 1 auto; width: 100%; min-height: 0;"></select>`;
+        html += `</div>`;
+        html += `<button id="${resolveAllId}" class="model-linker-resolve-btn" style="padding: 4px 8px; height: 32px;">Select from list</button>`;
         html += `</div>`;
 
         html += '</div>';
