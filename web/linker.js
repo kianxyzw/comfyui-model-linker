@@ -1869,6 +1869,7 @@ class ManageOverridesDialog extends ComfyDialog {
                     <div style="flex:1 1 auto; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><code title="${m.original_filename || ''}">${m.original_filename || ''}</code> <span style="opacity:.8;">[${m.category || 'any'}]</span></div>
                     <div style="flex:0 0 auto;"><button id="${delId}" class="model-linker-resolve-btn" style="padding:4px 8px;">Delete</button></div>
                 </div>
+                <div style="height:1px; background: var(--border-color); opacity:.5;"></div>
                 <div style="overflow-wrap:anywhere;"><code title="${m.path || ''}">${m.path || ''}</code></div>
             </div>`;
         }
