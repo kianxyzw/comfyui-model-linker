@@ -1691,6 +1691,7 @@ class ManageOverridesDialog extends ComfyDialog {
         this.data = null;
         this.search = '';
         this.element = $el("div.comfy-modal", {
+            id: 'manage-overrides-modal',
             parent: document.body,
             style: {
                 position: "fixed",
@@ -1709,13 +1710,47 @@ class ManageOverridesDialog extends ComfyDialog {
                 zIndex: "99999",
                 boxShadow: "0 4px 20px rgba(0,0,0,0.8)",
                 display: "none",
-                flexDirection: "column"
+                flexDirection: "column",
+                resize: "both",
+                overflow: "hidden",
+                minWidth: "560px",
+                minHeight: "360px"
             }
         }, [
             this._header(),
             this._content(),
             this._footer()
         ]);
+
+        // Persist window size for overrides dialog
+        try {
+            const saved = localStorage.getItem('model_linker_overrides_size');
+            if (saved) {
+                const { w, h } = JSON.parse(saved);
+                if (w && h) { this.element.style.width = `${w}px`; this.element.style.height = `${h}px`; }
+            }
+            if (window.ResizeObserver) {
+                const ro = new ResizeObserver((entries) => {
+                    for (const entry of entries) {
+                        const rect = entry.target.getBoundingClientRect();
+                        localStorage.setItem('model_linker_overrides_size', JSON.stringify({ w: Math.round(rect.width), h: Math.round(rect.height) }));
+                    }
+                });
+                ro.observe(this.element);
+                this._ro = ro;
+            }
+        } catch (e) {}
+
+        // Scoped smaller button font-size (2px less) in overrides modal
+        try {
+            if (!document.getElementById('manage-overrides-style-buttons')) {
+                const style = $el('style', { id: 'manage-overrides-style-buttons', textContent: `
+                    #manage-overrides-modal .model-linker-resolve-btn,
+                    #manage-overrides-modal .comfy-button { font-size: calc(1em - 2px); }
+                `});
+                document.head.appendChild(style);
+            }
+        } catch (e) {}
     }
 
     _header() {
@@ -1745,6 +1780,12 @@ class ManageOverridesDialog extends ComfyDialog {
                     style: { flex: 1, padding: '6px' }
                 }),
                 $el("span", { id: 'ovr-count', textContent: '' })
+            ]),
+            // Header row for two columns
+            $el('div', { style: { display: 'flex', gap: '8px', padding: '6px 8px', borderBottom: '1px solid var(--border-color)', fontWeight: 600, opacity: .9 } }, [
+                $el('div', { style: { flex: '2 1 40%' }, textContent: 'Missing / Category' }),
+                $el('div', { style: { flex: '3 1 55%' }, textContent: 'Override Path' }),
+                $el('div', { style: { flex: '0 0 auto', width: '72px', textAlign: 'right' }, textContent: 'Actions' })
             ]),
             this.listEl = $el("div", { id: 'ovr-list', style: { display: 'flex', flexDirection: 'column', gap: '6px' } })
         ]);
@@ -1817,16 +1858,16 @@ class ManageOverridesDialog extends ComfyDialog {
         const countEl = this.contentEl && this.contentEl.querySelector('#ovr-count');
         if (countEl) countEl.textContent = `${filtered.length}/${mappings.length}`;
         if (!filtered.length) {
-            this.listEl.innerHTML = '<div style="opacity:0.8;">No overrides</div>';
+            this.listEl.innerHTML = '<div style="opacity:0.8; padding:8px;">No overrides</div>';
             return;
         }
         let html = '';
         for (const m of filtered) {
             const delId = `ovr-del-${m.key}`.replace(/[^a-zA-Z0-9_-]/g, '_');
-            html += `<div style="border:1px solid var(--border-color); border-radius:4px; padding:8px; display:flex; gap:8px; align-items:center;">
-                <div style="flex: 2 1 40%; font-weight:600;"><code>${m.original_filename || ''}</code> <span style="opacity:.8;">[${m.category || 'any'}]</span></div>
-                <div style="flex: 3 1 60%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><code title="${m.path || ''}">${m.path || ''}</code></div>
-                <div><button id="${delId}" class="model-linker-resolve-btn" style="padding:4px 8px;">Delete</button></div>
+            html += `<div style="border:1px solid var(--border-color); border-radius:4px; padding:6px 8px; display:flex; gap:8px; align-items:center;">
+                <div style="flex: 2 1 40%; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><code title="${m.original_filename || ''}">${m.original_filename || ''}</code> <span style="opacity:.8;">[${m.category || 'any'}]</span></div>
+                <div style="flex: 3 1 55%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><code title="${m.path || ''}">${m.path || ''}</code></div>
+                <div style="flex: 0 0 auto; width: 72px; text-align: right;"><button id="${delId}" class="model-linker-resolve-btn" style="padding:4px 8px;">Delete</button></div>
             </div>`;
         }
         this.listEl.innerHTML = html;
