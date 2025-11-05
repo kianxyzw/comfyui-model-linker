@@ -223,7 +223,8 @@ class LinkerManagerDialog extends ComfyDialog {
                 padding: "16px",
                 flex: "1",
                 minHeight: "0",
-                alignItems: "stretch"
+                alignItems: "stretch",
+                position: "relative"
             }
         });
 
@@ -286,6 +287,34 @@ class LinkerManagerDialog extends ComfyDialog {
             this.splitterElement.addEventListener('mousedown', onSplitMouseDown);
             this._splitterMouseDown = onSplitMouseDown;
         } catch (e) {}
+        // Toggle icon always visible
+        try {
+            this.queueToggleIcon = $el("button", {
+                id: "queue-toggle-icon",
+                title: "Collapse queue",
+                onclick: () => this.toggleQueueCollapsed(),
+                style: {
+                    position: "absolute",
+                    top: "50%",
+                    right: "6px",
+                    transform: "translateY(-50%)",
+                    zIndex: "1000",
+                    padding: "2px 6px",
+                    border: "1px solid var(--border-color)",
+                    borderRadius: "4px",
+                    background: "var(--comfy-input-bg, #2f2f2f)",
+                    cursor: "pointer",
+                    opacity: "0.9"
+                }
+            }, [document.createTextNode('⮜')]);
+            body.appendChild(this.queueToggleIcon);
+            this.updateQueueToggleIcon();
+        } catch (e) {}
+        // Restore queue collapsed state
+        try {
+            const col = localStorage.getItem('model_linker_queue_collapsed');
+            if (col === '1') this.setQueueCollapsed(true);
+        } catch (e) {}
         return body;
     }
 
@@ -300,13 +329,22 @@ class LinkerManagerDialog extends ComfyDialog {
             }
         }, [
             $el("div", { id: "queue-title", textContent: "Queued Selections (0)", style: { fontWeight: "600" } }),
-            $el("button", {
-                id: "queue-clear",
-                className: "model-linker-resolve-btn",
-                textContent: "Clear All",
-                onclick: () => this.clearAllQueued(),
-                style: { padding: "4px 8px" }
-            })
+            $el("div", { style: { display: "flex", gap: "6px" } }, [
+                $el("button", {
+                    id: "queue-toggle",
+                    className: "model-linker-resolve-btn",
+                    textContent: "Collapse",
+                    onclick: () => this.toggleQueueCollapsed(),
+                    style: { padding: "4px 8px" }
+                }),
+                $el("button", {
+                    id: "queue-clear",
+                    className: "model-linker-resolve-btn",
+                    textContent: "Clear All",
+                    onclick: () => this.clearAllQueued(),
+                    style: { padding: "4px 8px" }
+                })
+            ])
         ]);
 
         // Scrollable list
@@ -333,6 +371,8 @@ class LinkerManagerDialog extends ComfyDialog {
         // Update title count
         const title = this.queueHeader.querySelector('#queue-title');
         if (title) title.textContent = `Queued Selections (${list.length})`;
+        const toggleBtn = this.queueHeader.querySelector('#queue-toggle');
+        if (toggleBtn) toggleBtn.textContent = this.queueCollapsed ? 'Expand' : 'Collapse';
 
         if (!list.length) {
             this.queueList.innerHTML = '<div style="opacity:0.7;">No selections queued.</div>';
@@ -351,7 +391,7 @@ class LinkerManagerDialog extends ComfyDialog {
             html += `<div style="font-size:12px; opacity:0.9;">Original: <code>${orig}</code></div>`;
             html += `<div style="font-size:12px;">Selected: <code>${label}</code></div>`;
             html += `<div style="margin-top:6px;"><button id="${rmId}" class="model-linker-resolve-btn" style="padding:2px 8px;">Remove</button></div>`;
-            html += `</div>`;
+            
         }
         html += '</div>';
         this.queueList.innerHTML = html;
@@ -390,6 +430,39 @@ class LinkerManagerDialog extends ComfyDialog {
         try {
             document.querySelectorAll('.model-linker-selected').forEach(el => { el.style.display = 'none'; el.innerHTML = ''; });
         } catch (e) { /* ignore */ }
+    }
+
+    // Collapse/expand queue panel and hide/show splitter
+    toggleQueueCollapsed() {
+        this.setQueueCollapsed(!this.queueCollapsed);
+    }
+
+    setQueueCollapsed(collapsed) {
+        this.queueCollapsed = !!collapsed;
+        if (!this.queueElement || !this.splitterElement) return;
+        if (this.queueCollapsed) {
+            this.queueElement.style.display = 'none';
+            this.splitterElement.style.display = 'none';
+            try { localStorage.setItem('model_linker_queue_collapsed', '1'); } catch (e) {}
+        } else {
+            this.queueElement.style.display = '';
+            this.splitterElement.style.display = '';
+            try { localStorage.setItem('model_linker_queue_collapsed', '0'); } catch (e) {}
+        }
+        this.updateQueuePanel();
+        this.updateQueueToggleIcon();
+    }
+
+    updateQueueToggleIcon() {
+        if (!this.queueToggleIcon) return;
+        if (this.queueCollapsed) {
+            this.queueToggleIcon.textContent = '⮞';
+            this.queueToggleIcon.title = 'Expand queue';
+            // keep at far right; nothing else to change
+        } else {
+            this.queueToggleIcon.textContent = '⮜';
+            this.queueToggleIcon.title = 'Collapse queue';
+        }
     }
     
     createFooter() {
@@ -806,57 +879,8 @@ class LinkerManagerDialog extends ComfyDialog {
                 }
             });
 
-            // Wire up all-models search + dropdown
-            const searchId = `search-all-${missing.node_id}-${missing.widget_index}`;
-            const selectAllId = `select-all-${missing.node_id}-${missing.widget_index}`;
-            const resolveAllId = `resolve-all-${missing.node_id}-${missing.widget_index}`;
-            const searchEl = container.querySelector(`#${searchId}`);
-            const selectAllEl = container.querySelector(`#${selectAllId}`);
-            const resolveAllBtn = container.querySelector(`#${resolveAllId}`);
-
-            const allModels = Array.isArray(this.allModels) ? this.allModels : [];
-            const buildLabel = (m) => `${m.category ? m.category + ': ' : ''}${m.relative_path || m.filename || ''}`;
-
-            const populateAllOptions = (filterText) => {
-                if (!selectAllEl) return;
-                const f = (filterText || '').toLowerCase();
-                const filtered = f
-                    ? allModels.filter(m => buildLabel(m).toLowerCase().includes(f))
-                    : allModels;
-                // Build options HTML
-                let opts = '';
-                for (let i = 0; i < filtered.length; i++) {
-                    const m = filtered[i];
-                    const label = buildLabel(m);
-                    // use index in allModels for value; keep stable mapping
-                    const valueIndex = allModels.indexOf(m);
-                    if (valueIndex >= 0) {
-                        opts += `<option value="${valueIndex}">${label}</option>`;
-                    }
-                }
-                selectAllEl.innerHTML = opts;
-            };
-
-            if (selectAllEl) {
-                populateAllOptions('');
-            }
-            if (searchEl) {
-                const debouncedFilter = this.debounce(() => {
-                    populateAllOptions(searchEl.value);
-                }, 250);
-                searchEl.addEventListener('input', debouncedFilter);
-            }
-            if (resolveAllBtn && selectAllEl) {
-                resolveAllBtn.addEventListener('click', () => {
-                    const idx = parseInt(selectAllEl.value, 10);
-                    if (!isNaN(idx) && idx >= 0 && idx < allModels.length) {
-                        const chosenModel = allModels[idx];
-                        if (chosenModel) {
-                            this.queueResolution(missing, chosenModel);
-                        }
-                    }
-                });
-            }
+            // Attach model combo picker (category-scoped)
+            this.attachModelCombo(container, missing);
             // Refresh selected UI for this item based on queued selections
             this.updateSelectedBarForMissing(missing);
 
@@ -867,32 +891,7 @@ class LinkerManagerDialog extends ComfyDialog {
                 locateBtn.addEventListener('click', () => this.locateNodeInGraph(missing.node_id));
             }
 
-            // Apply saved size to search box and persist on resize
-            const searchBoxId = `searchbox-${missing.node_id}-${missing.widget_index}`;
-            const searchBox = container.querySelector(`#${searchBoxId}`);
-            if (searchBox) {
-                try {
-                    const saved = localStorage.getItem('model_linker_searchbox_size');
-                    if (saved) {
-                        const { w, h } = JSON.parse(saved);
-                        if (w && h) {
-                            searchBox.style.width = `${w}px`;
-                            searchBox.style.height = `${h}px`;
-                        }
-                    }
-                    if (window.ResizeObserver) {
-                        const ro = new ResizeObserver((entries) => {
-                            for (const entry of entries) {
-                                const rect = entry.target.getBoundingClientRect();
-                                const w = Math.round(rect.width);
-                                const h = Math.round(rect.height);
-                                localStorage.setItem('model_linker_searchbox_size', JSON.stringify({ w, h }));
-                            }
-                        });
-                        ro.observe(searchBox);
-                    }
-                } catch (e) { /* ignore */ }
-            }
+            // Model combo is already attached above
         });
     }
 
@@ -918,17 +917,17 @@ class LinkerManagerDialog extends ComfyDialog {
             html += `<div style="margin-bottom: 8px; display:flex; align-items:center; justify-content:space-between; gap:8px;">`;
             html += `<span><strong>Subgraph:</strong> ${missing.subgraph_name} (ID: ${missing.node_id})</span>`;
             if (missing.is_top_level === false) {
-                html += `<button title="This node is inside a subgraph definition and can't be located in the main canvas" disabled class="model-linker-resolve-btn" style="opacity:.6; padding:2px 8px;">Locate</button>`;
+                html += `<button title="This node is inside a subgraph definition and can't be located in the main canvas" disabled class="model-linker-resolve-btn" style="opacity:.6; padding:2px 8px;">Located in subgraph</button>`;
             } else {
                 html += `<button id="${locateId}" class="model-linker-resolve-btn" style="padding:2px 8px;">Locate</button>`;
             }
-            html += `</div>`;
+            
         } else if (isSubgraphNode) {
             // Node type is a UUID (subgraph) but we don't have the name (shouldn't happen, but handle gracefully)
             html += `<div style="margin-bottom: 8px; display:flex; align-items:center; justify-content:space-between; gap:8px;">`;
             html += `<span><strong>Node:</strong> <em>Subgraph</em> (ID: ${missing.node_id})</span>`;
             if (missing.is_top_level === false) {
-                html += `<button title="This node is inside a subgraph definition and can't be located in the main canvas" disabled class="model-linker-resolve-btn" style="opacity:.6; padding:2px 8px;">Locate</button>`;
+                html += `<button title="This node is inside a subgraph definition and can't be located in the main canvas" disabled class="model-linker-resolve-btn" style="opacity:.6; padding:2px 8px;">Located in subgraph</button>`;
             } else {
                 html += `<button id="${locateId}" class="model-linker-resolve-btn" style="padding:2px 8px;">Locate</button>`;
             }
@@ -938,7 +937,7 @@ class LinkerManagerDialog extends ComfyDialog {
             html += `<div style="margin-bottom: 8px; display:flex; align-items:center; justify-content:space-between; gap:8px;">`;
             html += `<span><strong>Node:</strong> ${missing.node_type} (ID: ${missing.node_id})</span>`;
             if (missing.is_top_level === false) {
-                html += `<button title="This node is inside a subgraph definition and can't be located in the main canvas" disabled class="model-linker-resolve-btn" style="opacity:.6; padding:2px 8px;">Locate</button>`;
+                html += `<button title="This node is inside a subgraph definition and can't be located in the main canvas" disabled class="model-linker-resolve-btn" style="opacity:.6; padding:2px 8px;">Located in subgraph</button>`;
             } else {
                 html += `<button id="${locateId}" class="model-linker-resolve-btn" style="padding:2px 8px;">Locate</button>`;
             }
@@ -1027,17 +1026,17 @@ class LinkerManagerDialog extends ComfyDialog {
         html += `<div><strong>Category:</strong> ${missing.category || 'unknown'}</div>`;
         html += `</div>`;
 
-        const searchId = `search-all-${missing.node_id}-${missing.widget_index}`;
-        const selectAllId = `select-all-${missing.node_id}-${missing.widget_index}`;
-        const resolveAllId = `resolve-all-${missing.node_id}-${missing.widget_index}`;
-        const searchBoxId = `searchbox-${missing.node_id}-${missing.widget_index}`;
-        html += `<div style="margin-top: 10px; display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap;">`;
-        html += `<div id="${searchBoxId}" class="model-linker-searchbox" style="resize: both; overflow: auto; min-width: 260px; min-height: 140px; width: 360px; height: 200px; border: 1px solid var(--border-color); border-radius: 4px; padding: 8px; display: flex; flex-direction: column; gap: 6px; background: var(--comfy-input-bg, #2f2f2f);">`;
-        html += `<label for="${searchId}" style="opacity: 0.9;">Search all models:</label>`;
-        html += `<input id="${searchId}" type="text" placeholder="type to filter..." style="padding: 4px; width: 100%; box-sizing: border-box;" />`;
-        html += `<select id="${selectAllId}" class="model-linker-select" size="8" style="flex: 1 1 auto; width: 100%; min-height: 0;"></select>`;
+        // combo picker injected via attachModelCombo
+        
+        
+        
+        
+        
+        
+        
+        
         html += `</div>`;
-        html += `<button id="${resolveAllId}" class="model-linker-resolve-btn" style="padding: 4px 8px; height: 32px;">Select from list</button>`;
+        
         html += `</div>`;
 
         html += '</div>';
@@ -1397,6 +1396,115 @@ class LinkerManagerDialog extends ComfyDialog {
         this.applyPendingBtn.style.opacity = n === 0 ? '0.6' : '1';
         // Keep the queue panel count in sync
         this.updateQueuePanel();
+    }
+
+    // Build and wire a node-like combo picker showing ALL models (not category-restricted)
+    attachModelCombo(container, missing) {
+        const category = null; // show all models regardless of category
+        const inputId = `combo-input-${missing.node_id}-${missing.widget_index}`;
+        const listId = `combo-list-${missing.node_id}-${missing.widget_index}`;
+        const refreshId = `combo-refresh-${missing.node_id}-${missing.widget_index}`;
+
+        // Inject combo markup after 'Selected' bar
+        const selectedBar = container.querySelector(`#selected-${missing.node_id}-${missing.widget_index}-${missing.subgraph_id || 'top'}`);
+        if (!selectedBar) return;
+        const comboWrap = document.createElement('div');
+        comboWrap.style.position = 'relative';
+        comboWrap.style.margin = '8px 0';
+        const catLabel = category ? ` (${category})` : '';
+        comboWrap.innerHTML = `
+            <div style="display:flex; align-items:center; gap:6px;">
+                <label style="opacity:0.9;">Model${catLabel}:</label>
+                <input id="${inputId}" type="text" placeholder="type to filter..." style="flex:1; padding:4px;" />
+                <button id="${refreshId}" title="Refresh model list" class="model-linker-resolve-btn" style="padding:2px 8px;">⟳</button>
+            </div>
+            <div id="${listId}" style="position:absolute; top:100%; left:0; right:0; background: var(--comfy-input-bg, #2f2f2f); border:1px solid var(--border-color); border-radius:4px; max-height:280px; overflow:auto; display:none; z-index:100000;"></div>
+        `;
+        selectedBar.after(comboWrap);
+
+        const inputEl = comboWrap.querySelector(`#${inputId}`);
+        const listEl = comboWrap.querySelector(`#${listId}`);
+        const refreshBtn = comboWrap.querySelector(`#${refreshId}`);
+        if (!inputEl || !listEl) return;
+
+        const savedPaths = new Set((missing.matches || []).filter(m => m.is_override && m.model && m.model.path).map(m => m.model.path));
+        const getPool = () => Array.isArray(this.allModels) ? this.allModels : [];
+
+        const renderList = (items) => {
+            if (!items || !items.length) {
+                listEl.innerHTML = '<div style="padding:6px; opacity:0.8;">No results</div>';
+                return;
+            }
+            let html = '';
+            for (let i = 0; i < items.length; i++) {
+                const m = items[i];
+                const label = m.relative_path || m.filename || '';
+                const isSaved = savedPaths.has(m.path);
+                html += `<div data-idx="${i}" style="padding:6px; display:flex; align-items:center; gap:6px; cursor:pointer;">
+                    <code style="flex:1;">${label}</code>
+                    ${isSaved ? '<span style="color:#0aa96e; font-weight:600;">(saved)</span>' : ''}
+                </div>`;
+            }
+            listEl.innerHTML = html;
+        };
+
+        const buildSuggestions = (query) => {
+            const pool = getPool();
+            const q = (query || '').toLowerCase();
+            const items = pool.map(m => {
+                const label = m.relative_path || m.filename || '';
+                return { m, label, saved: savedPaths.has(m.path) };
+            }).filter(x => !q || (x.label || '').toLowerCase().includes(q));
+            // sort: saved first, then label asc
+            items.sort((a, b) => {
+                if (a.saved && !b.saved) return -1;
+                if (!a.saved && b.saved) return 1;
+                return (a.label || '').localeCompare(b.label || '');
+            });
+            // limit to avoid giant DOM
+            return items.slice(0, 100).map(x => x.m);
+        };
+
+        const openList = () => { listEl.style.display = 'block'; };
+        const closeList = () => { listEl.style.display = 'none'; };
+        const isOpen = () => listEl.style.display !== 'none';
+
+        const updateList = () => {
+            const q = inputEl.value || '';
+            const items = buildSuggestions(q);
+            renderList(items);
+        };
+
+        inputEl.addEventListener('focus', () => { openList(); updateList(); });
+        inputEl.addEventListener('input', this.debounce(() => { updateList(); openList(); }, 120));
+        inputEl.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') { closeList(); return; }
+        });
+        listEl.addEventListener('mousedown', (e) => {
+            const item = e.target.closest('[data-idx]');
+            if (!item) return;
+            const idx = parseInt(item.getAttribute('data-idx'), 10);
+            const q = inputEl.value || '';
+            const items = buildSuggestions(q);
+            const chosen = items[idx];
+            if (chosen) {
+                this.queueResolution(missing, chosen);
+                inputEl.value = chosen.relative_path || chosen.filename || '';
+                closeList();
+            }
+        });
+        document.addEventListener('click', (e) => {
+            if (!comboWrap.contains(e.target)) closeList();
+        });
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', async () => {
+                try {
+                    const resp = await api.fetchApi('/model_linker/models');
+                    if (resp.ok) this.allModels = await resp.json();
+                } catch (e) {}
+                updateList(); openList();
+            });
+        }
     }
 
     // Center and select a node in the current graph by ID
