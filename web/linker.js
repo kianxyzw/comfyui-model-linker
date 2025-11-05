@@ -1447,18 +1447,35 @@ class LinkerManagerDialog extends ComfyDialog {
         const savedPaths = new Set((missing.matches || []).filter(m => m.is_override && m.model && m.model.path).map(m => m.model.path));
         const getPool = () => Array.isArray(this.allModels) ? this.allModels : [];
 
-        const renderList = (items) => {
+        const renderList = (items, query, activeIdx) => {
             if (!items || !items.length) {
                 listEl.innerHTML = '<div style="padding:6px; opacity:0.8;">No results</div>';
                 return;
             }
+            const esc = (s) => (s || '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));
+            const q = (query || '').toLowerCase();
             let html = '';
             for (let i = 0; i < items.length; i++) {
                 const m = items[i];
-                const label = m.relative_path || m.filename || '';
+                const labRaw = m.relative_path || m.filename || '';
                 const isSaved = savedPaths.has(m.path);
-                html += `<div data-idx="${i}" style="padding:6px; display:flex; align-items:center; gap:6px; cursor:pointer;">
-                    <code style="flex:1;">${label}</code>
+                // highlight simple substring matches
+                let labelHtml = esc(labRaw);
+                if (q) {
+                    const low = labRaw.toLowerCase();
+                    let out = '';
+                    let idx = 0;
+                    for (;;) {
+                        const j = low.indexOf(q, idx);
+                        if (j === -1) { out += esc(labRaw.slice(idx)); break; }
+                        out += esc(labRaw.slice(idx, j)) + `<span style="font-weight:600; text-decoration:underline;">${esc(labRaw.slice(j, j+q.length))}</span>`;
+                        idx = j + q.length;
+                    }
+                    labelHtml = out;
+                }
+                const activeStyle = (i === activeIdx) ? 'background: rgba(0,122,204,0.25);' : '';
+                html += `<div data-idx="${i}" style="${activeStyle} padding:6px; display:flex; align-items:center; gap:6px; cursor:pointer;">
+                    <code style="flex:1;">${labelHtml}</code>
                     ${isSaved ? '<span style="color:#0aa96e; font-weight:600;">(saved)</span>' : ''}
                 </div>`;
             }
@@ -1482,28 +1499,58 @@ class LinkerManagerDialog extends ComfyDialog {
             return items.slice(0, 100).map(x => x.m);
         };
 
+        let currentItems = [];
+        let activeIndex = -1;
         const openList = () => { listEl.style.display = 'block'; };
-        const closeList = () => { listEl.style.display = 'none'; };
+        const closeList = () => { listEl.style.display = 'none'; activeIndex = -1; };
         const isOpen = () => listEl.style.display !== 'none';
 
         const updateList = () => {
             const q = inputEl.value || '';
-            const items = buildSuggestions(q);
-            renderList(items);
+            currentItems = buildSuggestions(q);
+            if (currentItems.length && activeIndex < 0) activeIndex = 0;
+            if (!currentItems.length) activeIndex = -1;
+            renderList(currentItems, q, activeIndex);
         };
 
         inputEl.addEventListener('focus', () => { openList(); updateList(); });
         inputEl.addEventListener('input', this.debounce(() => { updateList(); openList(); }, 120));
         inputEl.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') { closeList(); return; }
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                if (!isOpen()) { openList(); updateList(); return; }
+                if (!currentItems.length) return;
+                activeIndex = Math.min(currentItems.length - 1, (activeIndex < 0 ? 0 : activeIndex + 1));
+                renderList(currentItems, inputEl.value || '', activeIndex);
+                return;
+            }
+            if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (!isOpen()) { openList(); updateList(); return; }
+                if (!currentItems.length) return;
+                activeIndex = Math.max(0, (activeIndex < 0 ? 0 : activeIndex - 1));
+                renderList(currentItems, inputEl.value || '', activeIndex);
+                return;
+            }
+            if (e.key === 'Enter') {
+                if (!isOpen()) return;
+                if (activeIndex >= 0 && activeIndex < currentItems.length) {
+                    const chosen = currentItems[activeIndex];
+                    if (chosen) {
+                        this.queueResolution(missing, chosen);
+                        inputEl.value = chosen.relative_path || chosen.filename || '';
+                        closeList();
+                    }
+                }
+                return;
+            }
         });
         listEl.addEventListener('mousedown', (e) => {
             const item = e.target.closest('[data-idx]');
             if (!item) return;
             const idx = parseInt(item.getAttribute('data-idx'), 10);
-            const q = inputEl.value || '';
-            const items = buildSuggestions(q);
-            const chosen = items[idx];
+            const chosen = currentItems[idx];
             if (chosen) {
                 this.queueResolution(missing, chosen);
                 inputEl.value = chosen.relative_path || chosen.filename || '';
