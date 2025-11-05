@@ -36,6 +36,9 @@ class LinkerManagerDialog extends ComfyDialog {
         this.allModels = null; // list of all available models for dropdown
         this.pendingResolutions = [];
         this.pendingIndex = new Map(); // key -> index in pendingResolutions
+        this.fullscreen = false;
+        this._dragging = false;
+        this._dragStart = null;
         
         // Create dialog element using $el
         this.element = $el("div.comfy-modal", {
@@ -57,17 +60,58 @@ class LinkerManagerDialog extends ComfyDialog {
                 zIndex: "99999",
                 boxShadow: "0 4px 20px rgba(0,0,0,0.8)",
                 display: "none",
-                flexDirection: "column"
+                flexDirection: "column",
+                resize: "both",
+                overflow: "hidden",
+                minWidth: "640px",
+                minHeight: "420px"
             }
         }, [
             this.createHeader(),
             this.createContent(),
             this.createFooter()
         ]);
+
+        // Apply saved size if present and persist future resizes
+        try {
+            const saved = localStorage.getItem('model_linker_modal_size');
+            if (saved) {
+                const { w, h } = JSON.parse(saved);
+                if (w && h) {
+                    this.element.style.width = `${w}px`;
+                    this.element.style.height = `${h}px`;
+                }
+            }
+            // Restore last position if available
+            const savedPos = localStorage.getItem('model_linker_modal_pos');
+            if (savedPos) {
+                const { top, left } = JSON.parse(savedPos);
+                if (Number.isFinite(top) && Number.isFinite(left)) {
+                    this.element.style.top = `${top}px`;
+                    this.element.style.left = `${left}px`;
+                    this.element.style.transform = 'none';
+                }
+            }
+            // Observe size changes to persist
+            if (window.ResizeObserver) {
+                const ro = new ResizeObserver((entries) => {
+                    for (const entry of entries) {
+                        const rect = entry.target.getBoundingClientRect();
+                        const w = Math.round(rect.width);
+                        const h = Math.round(rect.height);
+                        localStorage.setItem('model_linker_modal_size', JSON.stringify({ w, h }));
+                    }
+                });
+                ro.observe(this.element);
+                this._resizeObserver = ro;
+            }
+        } catch (e) {
+            // ignore storage/observer errors
+        }
     }
     
     createHeader() {
-        return $el("div", {
+        const header = $el("div", {
             style: {
                 display: "flex",
                 justifyContent: "space-between",
@@ -77,47 +121,241 @@ class LinkerManagerDialog extends ComfyDialog {
                 backgroundColor: "var(--comfy-menu-bg, #202020)"
             }
         }, [
-            $el("h2", {
-                textContent: "🔗 Model Linker",
-                style: {
-                    margin: "0",
-                    color: "var(--input-text)",
-                    fontSize: "18px",
-                    fontWeight: "600"
-                }
-            }),
-            $el("button", {
-                textContent: "×",
-                onclick: () => this.close(),
-                style: {
-                    background: "none",
-                    border: "none",
-                    fontSize: "24px",
-                    cursor: "pointer",
-                    color: "var(--input-text)",
-                    padding: "0",
-                    width: "30px",
-                    height: "30px",
-                    borderRadius: "4px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center"
-                }
-            })
+            $el("div", { style: { display: "flex", gap: "8px", alignItems: "center" } }, [
+                $el("div", {
+                    id: "model-linker-drag-handle",
+                    title: "Drag window",
+                    ondragstart: (e) => e.preventDefault(),
+                    style: {
+                        cursor: "grab",
+                        userSelect: "none",
+                        border: "1px solid var(--border-color)",
+                        borderRadius: "4px",
+                        padding: "0 6px",
+                        height: "24px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        opacity: "0.9"
+                    }
+                }, [
+                    $el("span", { textContent: "⠿" })
+                ]),
+                $el("h2", {
+                    textContent: "🔗 Model Linker",
+                    style: {
+                        margin: "0",
+                        color: "var(--input-text)",
+                        fontSize: "18px",
+                        fontWeight: "600"
+                    }
+                })
+            ]),
+            $el("div", { style: { display: "flex", gap: "8px", alignItems: "center" } }, [
+                $el("button", {
+                    id: "model-linker-fullscreen-toggle",
+                    title: "Toggle full screen",
+                    textContent: "⛶",
+                    onclick: () => this.toggleFullScreen(),
+                    style: {
+                        background: "none",
+                        border: "1px solid var(--border-color)",
+                        fontSize: "16px",
+                        cursor: "pointer",
+                        color: "var(--input-text)",
+                        padding: "2px 8px",
+                        minWidth: "32px",
+                        height: "30px",
+                        borderRadius: "4px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center"
+                    }
+                }),
+                $el("button", {
+                    textContent: "×",
+                    onclick: () => this.close(),
+                    style: {
+                        background: "none",
+                        border: "none",
+                        fontSize: "24px",
+                        cursor: "pointer",
+                        color: "var(--input-text)",
+                        padding: "0",
+                        width: "30px",
+                        height: "30px",
+                        borderRadius: "4px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center"
+                    }
+                })
+            ])
         ]);
+        // Double-click header to toggle full screen
+        header.addEventListener('dblclick', () => this.toggleFullScreen());
+        // Make only the drag handle draggable
+        try {
+            const handle = header.querySelector('#model-linker-drag-handle');
+            if (handle) {
+                const onMouseDown = (e) => {
+                    if (this.fullscreen) return; // no drag in fullscreen
+                    handle.style.cursor = 'grabbing';
+                    this.startDrag(e);
+                };
+                const onMouseUpLocal = () => { handle.style.cursor = 'grab'; };
+                handle.addEventListener('mousedown', onMouseDown);
+                document.addEventListener('mouseup', onMouseUpLocal);
+                this._dragHandleMouseDown = onMouseDown;
+                this._dragHandleMouseUp = onMouseUpLocal;
+            }
+        } catch (e) { /* ignore */ }
+        return header;
     }
     
     createContent() {
+        // Wrap the body in a two-column layout: left = items, right = queued panel
+        const body = $el("div", {
+            id: "model-linker-body",
+            style: {
+                display: "flex",
+                gap: "12px",
+                padding: "16px",
+                flex: "1",
+                minHeight: "0"
+            }
+        });
+
         this.contentElement = $el("div", {
             id: "model-linker-content",
             style: {
-                padding: "16px",
                 overflowY: "auto",
                 flex: "1",
                 minHeight: "0"
             }
         });
-        return this.contentElement;
+
+        this.queueElement = $el("div", {
+            id: "model-linker-queue",
+            style: {
+                width: "320px",
+                minWidth: "280px",
+                maxWidth: "360px",
+                borderLeft: "1px solid var(--border-color)",
+                paddingLeft: "12px",
+                display: "flex",
+                flexDirection: "column"
+            }
+        }, [
+            this.createQueuePanel()
+        ]);
+
+        body.appendChild(this.contentElement);
+        body.appendChild(this.queueElement);
+        return body;
+    }
+
+    createQueuePanel() {
+        // Header row with title and clear button
+        this.queueHeader = $el("div", {
+            style: {
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: "8px"
+            }
+        }, [
+            $el("div", { id: "queue-title", textContent: "Queued Selections (0)", style: { fontWeight: "600" } }),
+            $el("button", {
+                id: "queue-clear",
+                className: "model-linker-resolve-btn",
+                textContent: "Clear All",
+                onclick: () => this.clearAllQueued(),
+                style: { padding: "4px 8px" }
+            })
+        ]);
+
+        // Scrollable list
+        this.queueList = $el("div", {
+            id: "queue-list",
+            style: {
+                overflowY: "auto",
+                flex: "1",
+                minHeight: "0",
+                border: "1px solid var(--border-color)",
+                borderRadius: "4px",
+                padding: "8px",
+                background: "var(--comfy-input-bg, #2f2f2f)"
+            }
+        });
+
+        const panel = $el("div", { style: { display: "flex", flexDirection: "column", minHeight: "0" } }, [this.queueHeader, this.queueList]);
+        return panel;
+    }
+
+    updateQueuePanel() {
+        if (!this.queueList || !this.queueHeader) return;
+        const list = Array.isArray(this.pendingResolutions) ? this.pendingResolutions : [];
+        // Update title count
+        const title = this.queueHeader.querySelector('#queue-title');
+        if (title) title.textContent = `Queued Selections (${list.length})`;
+
+        if (!list.length) {
+            this.queueList.innerHTML = '<div style="opacity:0.7;">No selections queued.</div>';
+            return;
+        }
+
+        let html = '<div style="display:flex; flex-direction:column; gap:6px;">';
+        for (let i = 0; i < list.length; i++) {
+            const r = list[i];
+            const label = (r.resolved_model?.relative_path || r.resolved_model?.filename || r.resolved_path || '').toString();
+            const nodeLabel = r.node_label || r.node_type || (r.subgraph_id ? 'Subgraph' : 'Node');
+            const orig = (r.original_path || '').toString();
+            const rmId = `queue-remove-${i}`;
+            html += `<div style="border:1px solid var(--border-color); border-radius:4px; padding:6px; background: rgba(255,255,255,0.02);">`;
+            html += `<div style="font-weight:600;">${nodeLabel} #${r.node_id}</div>`;
+            html += `<div style="font-size:12px; opacity:0.9;">Original: <code>${orig}</code></div>`;
+            html += `<div style="font-size:12px;">Selected: <code>${label}</code></div>`;
+            html += `<div style="margin-top:6px;"><button id="${rmId}" class="model-linker-resolve-btn" style="padding:2px 8px;">Remove</button></div>`;
+            html += `</div>`;
+        }
+        html += '</div>';
+        this.queueList.innerHTML = html;
+
+        // Wire remove buttons
+        for (let i = 0; i < list.length; i++) {
+            const rmId = `queue-remove-${i}`;
+            const btn = this.queueList.querySelector(`#${rmId}`);
+            if (btn) {
+                btn.addEventListener('click', () => this.removeQueuedByIndex(i));
+            }
+        }
+    }
+
+    // Remove queued by index (from right panel)
+    removeQueuedByIndex(i) {
+        const list = Array.isArray(this.pendingResolutions) ? this.pendingResolutions : [];
+        if (i < 0 || i >= list.length) return;
+        const r = list[i];
+        // Remove
+        this.pendingResolutions.splice(i, 1);
+        this.rebuildPendingIndex();
+        // Update per-item selected bar
+        const m = { node_id: r.node_id, widget_index: r.widget_index, subgraph_id: r.subgraph_id, is_top_level: r.is_top_level };
+        this.updateSelectedBarForMissing(m);
+        this.updateApplyPendingButton();
+        this.updateQueuePanel();
+    }
+
+    // Clear all queued selections and hide per-item selected bars
+    clearAllQueued() {
+        this.pendingResolutions = [];
+        this.pendingIndex = new Map();
+        this.updateApplyPendingButton();
+        this.updateQueuePanel();
+        try {
+            document.querySelectorAll('.model-linker-selected').forEach(el => { el.style.display = 'none'; el.innerHTML = ''; });
+        } catch (e) { /* ignore */ }
     }
     
     createFooter() {
@@ -162,6 +400,10 @@ class LinkerManagerDialog extends ComfyDialog {
         this.element.style.display = "flex";
         await this.ensureAllModelsLoaded();
         await this.loadWorkflowData();
+        try {
+            const fs = localStorage.getItem('model_linker_modal_fullscreen');
+            if (fs === '1') this.setFullScreen(true);
+        } catch (e) {}
     }
     
     close() {
@@ -201,6 +443,133 @@ class LinkerManagerDialog extends ComfyDialog {
                 callback.apply(this, args);
             }, wait);
         };
+    }
+
+    // Begin window drag
+    startDrag(e) {
+        try {
+            const el = this.element;
+            if (!el) return;
+            const rect = el.getBoundingClientRect();
+            // Switch to absolute top/left (no transform) before dragging
+            el.style.top = `${rect.top}px`;
+            el.style.left = `${rect.left}px`;
+            el.style.transform = 'none';
+            this._dragging = true;
+            this._dragStart = {
+                x: e.clientX,
+                y: e.clientY,
+                top: rect.top,
+                left: rect.left
+            };
+            // Prevent text selection while dragging
+            this._prevUserSelect = document.body.style.userSelect;
+            document.body.style.userSelect = 'none';
+            // Attach listeners
+            this._onMouseMove = (ev) => this.onDrag(ev);
+            this._onMouseUp = () => this.endDrag();
+            document.addEventListener('mousemove', this._onMouseMove);
+            document.addEventListener('mouseup', this._onMouseUp, { once: true });
+        } catch (err) { /* ignore */ }
+    }
+
+    onDrag(e) {
+        if (!this._dragging || !this._dragStart) return;
+        const el = this.element;
+        if (!el) return;
+        const dx = e.clientX - this._dragStart.x;
+        const dy = e.clientY - this._dragStart.y;
+        let top = this._dragStart.top + dy;
+        let left = this._dragStart.left + dx;
+        // Clamp to viewport
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const w = el.offsetWidth;
+        const h = el.offsetHeight;
+        const pad = 4; // small padding
+        left = Math.max(-w + pad, Math.min(vw - pad, left));
+        top = Math.max(-h + pad, Math.min(vh - pad, top));
+        el.style.top = `${Math.round(top)}px`;
+        el.style.left = `${Math.round(left)}px`;
+    }
+
+    endDrag() {
+        if (!this._dragging) return;
+        this._dragging = false;
+        document.removeEventListener('mousemove', this._onMouseMove);
+        // Persist position
+        try {
+            const el = this.element;
+            const rect = el.getBoundingClientRect();
+            localStorage.setItem('model_linker_modal_pos', JSON.stringify({ top: Math.round(rect.top), left: Math.round(rect.left) }));
+        } catch (e) { /* ignore */ }
+        // Restore selection
+        try { document.body.style.userSelect = this._prevUserSelect || ''; } catch (e) {}
+    }
+
+    // Toggle full screen mode for the dialog
+    toggleFullScreen() {
+        this.setFullScreen(!this.fullscreen);
+    }
+
+    setFullScreen(enable) {
+        this.fullscreen = !!enable;
+        const el = this.element;
+        if (!el) return;
+        const btn = document.getElementById('model-linker-fullscreen-toggle');
+        if (enable) {
+            // Save current size
+            try {
+                const rect = el.getBoundingClientRect();
+                localStorage.setItem('model_linker_modal_size_before_fs', JSON.stringify({ w: Math.round(rect.width), h: Math.round(rect.height) }));
+            } catch (e) {}
+            el.style.top = '0';
+            el.style.left = '0';
+            el.style.transform = 'none';
+            el.style.width = '100vw';
+            el.style.height = '100vh';
+            el.style.maxWidth = '100vw';
+            el.style.maxHeight = '100vh';
+            el.style.borderRadius = '0';
+            el.style.resize = 'none';
+            if (btn) btn.textContent = '🗗';
+            try { localStorage.setItem('model_linker_modal_fullscreen', '1'); } catch (e) {}
+        } else {
+            // Restore centered sizing
+            el.style.maxWidth = '95vw';
+            el.style.maxHeight = '95vh';
+            el.style.borderRadius = '8px';
+            el.style.resize = 'both';
+            // Restore saved pre-FS size if available
+            let wh = null;
+            try { wh = JSON.parse(localStorage.getItem('model_linker_modal_size_before_fs') || 'null'); } catch (e) {}
+            if (wh && wh.w && wh.h) {
+                el.style.width = `${wh.w}px`;
+                el.style.height = `${wh.h}px`;
+            } else {
+                el.style.width = '900px';
+                el.style.height = '700px';
+            }
+            // Restore last known position if available, else center
+            try {
+                const pos = JSON.parse(localStorage.getItem('model_linker_modal_pos') || 'null');
+                if (pos && Number.isFinite(pos.top) && Number.isFinite(pos.left)) {
+                    el.style.top = `${pos.top}px`;
+                    el.style.left = `${pos.left}px`;
+                    el.style.transform = 'none';
+                } else {
+                    el.style.top = '50%';
+                    el.style.left = '50%';
+                    el.style.transform = 'translate(-50%, -50%)';
+                }
+            } catch (e) {
+                el.style.top = '50%';
+                el.style.left = '50%';
+                el.style.transform = 'translate(-50%, -50%)';
+            }
+            if (btn) btn.textContent = '⛶';
+            try { localStorage.setItem('model_linker_modal_fullscreen', '0'); } catch (e) {}
+        }
     }
 
     /**
@@ -409,6 +778,15 @@ class LinkerManagerDialog extends ComfyDialog {
                     }
                 });
             }
+            // Refresh selected UI for this item based on queued selections
+            this.updateSelectedBarForMissing(missing);
+
+            // Wire Locate button (only available for top-level items)
+            const locateId = `locate-${missing.node_id}-${missing.widget_index}`;
+            const locateBtn = container.querySelector(`#${locateId}`);
+            if (locateBtn && missing.is_top_level !== false) {
+                locateBtn.addEventListener('click', () => this.locateNodeInGraph(missing.node_id));
+            }
         });
     }
 
@@ -428,18 +806,43 @@ class LinkerManagerDialog extends ComfyDialog {
         // A node type that's a UUID indicates it's a subgraph instance
         const isSubgraphNode = missing.node_type && missing.node_type.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
         
+        const locateId = `locate-${missing.node_id}-${missing.widget_index}`;
         if (missing.subgraph_name) {
             // Show subgraph name as primary identifier
-            html += `<div style="margin-bottom: 8px;"><strong>Subgraph:</strong> ${missing.subgraph_name} (ID: ${missing.node_id})</div>`;
+            html += `<div style="margin-bottom: 8px; display:flex; align-items:center; justify-content:space-between; gap:8px;">`;
+            html += `<span><strong>Subgraph:</strong> ${missing.subgraph_name} (ID: ${missing.node_id})</span>`;
+            if (missing.is_top_level === false) {
+                html += `<button title="This node is inside a subgraph definition and can't be located in the main canvas" disabled class="model-linker-resolve-btn" style="opacity:.6; padding:2px 8px;">Locate</button>`;
+            } else {
+                html += `<button id="${locateId}" class="model-linker-resolve-btn" style="padding:2px 8px;">Locate</button>`;
+            }
+            html += `</div>`;
         } else if (isSubgraphNode) {
             // Node type is a UUID (subgraph) but we don't have the name (shouldn't happen, but handle gracefully)
-            html += `<div style="margin-bottom: 8px;"><strong>Node:</strong> <em>Subgraph</em> (ID: ${missing.node_id})</div>`;
+            html += `<div style="margin-bottom: 8px; display:flex; align-items:center; justify-content:space-between; gap:8px;">`;
+            html += `<span><strong>Node:</strong> <em>Subgraph</em> (ID: ${missing.node_id})</span>`;
+            if (missing.is_top_level === false) {
+                html += `<button title="This node is inside a subgraph definition and can't be located in the main canvas" disabled class="model-linker-resolve-btn" style="opacity:.6; padding:2px 8px;">Locate</button>`;
+            } else {
+                html += `<button id="${locateId}" class="model-linker-resolve-btn" style="padding:2px 8px;">Locate</button>`;
+            }
+            html += `</div>`;
         } else {
             // Regular node
-            html += `<div style="margin-bottom: 8px;"><strong>Node:</strong> ${missing.node_type} (ID: ${missing.node_id})</div>`;
+            html += `<div style="margin-bottom: 8px; display:flex; align-items:center; justify-content:space-between; gap:8px;">`;
+            html += `<span><strong>Node:</strong> ${missing.node_type} (ID: ${missing.node_id})</span>`;
+            if (missing.is_top_level === false) {
+                html += `<button title="This node is inside a subgraph definition and can't be located in the main canvas" disabled class="model-linker-resolve-btn" style="opacity:.6; padding:2px 8px;">Locate</button>`;
+            } else {
+                html += `<button id="${locateId}" class="model-linker-resolve-btn" style="padding:2px 8px;">Locate</button>`;
+            }
+            html += `</div>`;
         }
         html += `<div style="margin-bottom: 8px;"><strong>Missing Model:</strong> <code>${missing.original_path}</code></div>`;
         html += `<div style="margin-bottom: 8px;"><strong>Category:</strong> ${missing.category || 'unknown'}</div>`;
+        // Selected state placeholder (filled dynamically when user queues a selection)
+        const selectedId = `selected-${missing.node_id}-${missing.widget_index}-${missing.subgraph_id || 'top'}`;
+        html += `<div id="${selectedId}" class="model-linker-selected" style="display:none; margin: 8px 0; padding: 8px; border: 1px solid var(--border-color, #444); border-radius: 4px; background: rgba(10,169,110,0.08);"></div>`;
 
         if (hasMatches) {
             // Filter out matches below 70% confidence threshold
@@ -645,6 +1048,65 @@ class LinkerManagerDialog extends ComfyDialog {
         }, dismissTime);
     }
 
+    // Build a stable key for a missing entry (same as queueResolution)
+    getResolutionKey(missing) {
+        return `${missing.node_id}:${missing.widget_index}:${missing.subgraph_id || ''}:${missing.is_top_level ? 'T' : 'F'}`;
+    }
+
+    // Return queued resolution (if any) for a missing entry
+    getQueuedResolutionForMissing(missing) {
+        const key = this.getResolutionKey(missing);
+        if (this.pendingIndex.has(key)) {
+            const idx = this.pendingIndex.get(key);
+            return this.pendingResolutions[idx];
+        }
+        return null;
+    }
+
+    // Rebuild index mapping after removals
+    rebuildPendingIndex() {
+        this.pendingIndex = new Map();
+        for (let i = 0; i < this.pendingResolutions.length; i++) {
+            const r = this.pendingResolutions[i];
+            const k = `${r.node_id}:${r.widget_index}:${r.subgraph_id || ''}:${r.is_top_level ? 'T' : 'F'}`;
+            this.pendingIndex.set(k, i);
+        }
+    }
+
+    // Remove a queued resolution for a missing item
+    removeQueuedResolution(missing) {
+        const key = this.getResolutionKey(missing);
+        if (!this.pendingIndex.has(key)) return;
+        const idx = this.pendingIndex.get(key);
+        this.pendingResolutions.splice(idx, 1);
+        this.rebuildPendingIndex();
+        this.updateSelectedBarForMissing(missing);
+        this.updateApplyPendingButton();
+        this.updateQueuePanel();
+    }
+
+    // Update the per-item selected UI area
+    updateSelectedBarForMissing(missing) {
+        const containerId = `selected-${missing.node_id}-${missing.widget_index}-${missing.subgraph_id || 'top'}`;
+        const el = document.getElementById(containerId);
+        if (!el) return;
+        const queued = this.getQueuedResolutionForMissing(missing);
+        if (!queued) {
+            el.style.display = 'none';
+            el.innerHTML = '';
+            return;
+        }
+        const model = queued.resolved_model || {};
+        const label = model.relative_path || model.filename || queued.resolved_path || 'selected model';
+        const removeId = `selected-remove-${missing.node_id}-${missing.widget_index}-${missing.subgraph_id || 'top'}`;
+        el.innerHTML = `<strong>Selected:</strong> <code>${label}</code> <button id="${removeId}" class="model-linker-resolve-btn" style="margin-left:8px; padding: 2px 8px;">Remove</button>`;
+        el.style.display = '';
+        const btn = document.getElementById(removeId);
+        if (btn) {
+            btn.onclick = () => this.removeQueuedResolution(missing);
+        }
+    }
+
     /**
      * Queue a single resolution (do not call backend yet)
      */
@@ -662,7 +1124,9 @@ class LinkerManagerDialog extends ComfyDialog {
             resolved_model: resolvedModel,
             original_path: missing.original_path,
             subgraph_id: missing.subgraph_id,
-            is_top_level: missing.is_top_level
+            is_top_level: missing.is_top_level,
+            node_type: missing.node_type,
+            node_label: missing.subgraph_name || missing.node_type
         };
 
         const key = `${resolution.node_id}:${resolution.widget_index}:${resolution.subgraph_id || ''}:${resolution.is_top_level ? 'T' : 'F'}`;
@@ -675,19 +1139,9 @@ class LinkerManagerDialog extends ComfyDialog {
             this.pendingResolutions.push(resolution);
         }
 
-        // Mark block as queued
-        try {
-            const blockId = `missing-${missing.node_id}-${missing.widget_index}`;
-            const block = document.getElementById(blockId);
-            if (block && !block.querySelector('.queued-badge')) {
-                const badge = document.createElement('div');
-                badge.className = 'queued-badge';
-                badge.style.cssText = 'margin-top:8px;color:#0aa96e;font-weight:600;';
-                badge.textContent = 'Queued for linking';
-                block.appendChild(badge);
-            }
-        } catch (e) { /* ignore DOM errors */ }
-
+        // Update selected bar UI
+        this.updateSelectedBarForMissing(missing);
+        this.updateQueuePanel();
         this.updateApplyPendingButton();
     }
 
@@ -815,6 +1269,7 @@ class LinkerManagerDialog extends ComfyDialog {
                 this.pendingResolutions = [];
                 this.pendingIndex = new Map();
                 this.updateApplyPendingButton();
+                this.updateQueuePanel();
                 await this.loadWorkflowData(data.workflow);
             } else {
                 this.showNotification('Failed to apply selections: ' + (data.error || 'Unknown error'), 'error');
@@ -831,6 +1286,50 @@ class LinkerManagerDialog extends ComfyDialog {
         this.applyPendingBtn.textContent = `Apply Selected (${n})`;
         this.applyPendingBtn.disabled = n === 0;
         this.applyPendingBtn.style.opacity = n === 0 ? '0.6' : '1';
+        // Keep the queue panel count in sync
+        this.updateQueuePanel();
+    }
+
+    // Center and select a node in the current graph by ID
+    locateNodeInGraph(nodeId) {
+        try {
+            if (!app || !app.graph) {
+                this.showNotification('Graph not available', 'error');
+                return;
+            }
+            let node = null;
+            if (typeof app.graph.getNodeById === 'function') {
+                try { node = app.graph.getNodeById(nodeId); } catch(e) { /* ignore */ }
+            }
+            if (!node && app.graph._nodes_by_id) {
+                node = app.graph._nodes_by_id[nodeId];
+            }
+            if (!node) {
+                this.showNotification('Node not found in current view', 'error');
+                return;
+            }
+            const canvas = app.canvas;
+            if (canvas) {
+                // Deselect other nodes
+                if (typeof canvas.deselectAllNodes === 'function') {
+                    try { canvas.deselectAllNodes(); } catch(e) {}
+                }
+                // Select this node
+                if (typeof canvas.selectNode === 'function') {
+                    try { canvas.selectNode(node, true); } catch(e) {}
+                } else if (typeof canvas.selectNodes === 'function') {
+                    try { canvas.selectNodes([node], true); } catch(e) {}
+                }
+                // Center on node
+                if (typeof canvas.centerOnNode === 'function') {
+                    try { canvas.centerOnNode(node); } catch(e) {}
+                } else if (typeof canvas.scrollToCenter === 'function') {
+                    try { canvas.scrollToCenter(); } catch(e) {}
+                }
+            }
+        } catch (error) {
+            console.error('Model Linker: locateNodeInGraph error', error);
+        }
     }
 
     /**
