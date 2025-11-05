@@ -25,7 +25,9 @@ def get_model_directories() -> Dict[str, Tuple[List[str], set]]:
     Get all configured model directories from folder_paths.
     
     Returns:
-        Dictionary mapping category name to (list of paths, set of extensions)
+        Dictionary mapping category name to a tuple. ComfyUI may provide either:
+        - (paths, extensions), or
+        - (paths, extensions, recursive_flag)
     """
     global folder_paths
     
@@ -81,7 +83,11 @@ def scan_directory(directory: str, extensions: set, category: str) -> List[Dict[
                 
                 # For categories with empty extension set, accept all files
                 # Otherwise, check if extension matches
-                if len(extensions) == 0 or file_ext in extensions or file_ext in MODEL_EXTENSIONS:
+                # Accept if:
+                # - no explicit extensions configured, or
+                # - matches configured extensions, or
+                # - matches our known model extensions
+                if len(extensions or set()) == 0 or file_ext in extensions or file_ext in MODEL_EXTENSIONS:
                     full_path = os.path.join(root, filename)
                     
                     # Calculate relative path from base directory
@@ -119,11 +125,40 @@ def scan_all_directories() -> List[Dict[str, str]]:
     all_models = []
     directories = get_model_directories()
     
-    for category, (paths, extensions) in directories.items():
+    for category, value in directories.items():
         # Skip categories that aren't typically model directories
         if category in ['custom_nodes', 'configs']:
             continue
-            
+
+        # Unpack folder_paths value flexibly: (paths, extensions) or (paths, extensions, recursive)
+        paths = []
+        extensions = set()
+        try:
+            if isinstance(value, (list, tuple)):
+                if len(value) >= 2:
+                    paths = value[0] or []
+                    raw_exts = value[1]
+                else:
+                    # Unexpected format: treat value as paths
+                    paths = list(value)
+                    raw_exts = []
+            elif isinstance(value, dict):
+                paths = value.get('paths') or value.get('path') or []
+                raw_exts = value.get('extensions') or []
+            else:
+                # Unknown format; skip category
+                logging.debug(f"Unexpected folder_paths format for category {category}: {type(value)}")
+                continue
+
+            # Normalize extensions to a set[str]
+            if isinstance(raw_exts, (list, tuple, set)):
+                extensions = {str(e).lower() for e in raw_exts}
+            elif raw_exts:
+                extensions = {str(raw_exts).lower()}
+        except Exception as e:
+            logging.warning(f"Error interpreting folder_paths entry for {category}: {e}")
+            continue
+
         for directory_path in paths:
             try:
                 models = scan_directory(directory_path, extensions, category)
