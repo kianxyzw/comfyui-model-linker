@@ -1864,10 +1864,12 @@ class ManageOverridesDialog extends ComfyDialog {
         let html = '';
         for (const m of filtered) {
             const delId = `ovr-del-${m.key}`.replace(/[^a-zA-Z0-9_-]/g, '_');
-            html += `<div style="border:1px solid var(--border-color); border-radius:4px; padding:6px 8px; display:flex; gap:8px; align-items:center;">
-                <div style="flex: 2 1 40%; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><code title="${m.original_filename || ''}">${m.original_filename || ''}</code> <span style="opacity:.8;">[${m.category || 'any'}]</span></div>
-                <div style="flex: 3 1 55%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><code title="${m.path || ''}">${m.path || ''}</code></div>
-                <div style="flex: 0 0 auto; width: 72px; text-align: right;"><button id="${delId}" class="model-linker-resolve-btn" style="padding:4px 8px;">Delete</button></div>
+            html += `<div style="border:1px solid var(--border-color); border-radius:4px; padding:8px; display:flex; flex-direction:column; gap:6px;">
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                    <div style="flex:1 1 auto; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><code title="${m.original_filename || ''}">${m.original_filename || ''}</code> <span style="opacity:.8;">[${m.category || 'any'}]</span></div>
+                    <div style="flex:0 0 auto;"><button id="${delId}" class="model-linker-resolve-btn" style="padding:4px 8px;">Delete</button></div>
+                </div>
+                <div style="overflow-wrap:anywhere;"><code title="${m.path || ''}">${m.path || ''}</code></div>
             </div>`;
         }
         this.listEl.innerHTML = html;
