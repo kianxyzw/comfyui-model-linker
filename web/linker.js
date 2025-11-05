@@ -1870,22 +1870,37 @@ class ManageOverridesDialog extends ComfyDialog {
                     <div style="flex:0 0 auto;"><button id="${delId}" class="model-linker-resolve-btn" style="padding:4px 8px;">Delete</button></div>
                 </div>
                 <div style="height:1px; background: var(--border-color); opacity:.5;"></div>
-                <div style="overflow-wrap:anywhere;"><code title="${m.path || ''}">${m.path || ''}</code></div>
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                    <div style="flex:1 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><code title="${(m.path || '').split(/\\\\|\//).pop() || ''}">${(m.path || '').split(/\\\\|\//).pop() || ''}</code></div>
+                    <div style="flex:0 0 auto;"><button id="ovr-pathbtn-${(m.key || '').replace(/[^a-zA-Z0-9_-]/g, '_')}" class="model-linker-resolve-btn" style="padding:4px 8px;">Path</button></div>
+                </div>
+                <div id="ovr-pathrow-${(m.key || '').replace(/[^a-zA-Z0-9_-]/g, '_')}" style="display:none; overflow-wrap:anywhere; opacity:.9;"><code title="${m.path || ''}">${m.path || ''}</code></div>
             </div>`;
         }
         this.listEl.innerHTML = html;
-        // Wire delete
+        // Wire delete and path toggle
         for (const m of filtered) {
+            const safeKey = (m.key || '').replace(/[^a-zA-Z0-9_-]/g, '_');
             const delId = `ovr-del-${m.key}`.replace(/[^a-zA-Z0-9_-]/g, '_');
             const btn = this.listEl.querySelector(`#${delId}`);
-            if (!btn) continue;
-            btn.addEventListener('click', async () => {
-                try {
-                    const resp = await api.fetchApi('/model_linker/overrides/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: m.key }) });
-                    const data = await resp.json();
-                    if (data.success) await this.load(); else alert('Delete failed');
-                } catch (e) { alert('Delete failed: ' + e.message); }
-            });
+            if (btn) {
+                btn.addEventListener('click', async () => {
+                    try {
+                        const resp = await api.fetchApi('/model_linker/overrides/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: m.key }) });
+                        const data = await resp.json();
+                        if (data.success) await this.load(); else alert('Delete failed');
+                    } catch (e) { alert('Delete failed: ' + e.message); }
+                });
+            }
+            const pathBtn = this.listEl.querySelector(`#ovr-pathbtn-${safeKey}`);
+            const pathRow = this.listEl.querySelector(`#ovr-pathrow-${safeKey}`);
+            if (pathBtn && pathRow) {
+                pathBtn.addEventListener('click', () => {
+                    const vis = pathRow.style.display !== 'none';
+                    pathRow.style.display = vis ? 'none' : 'block';
+                    pathBtn.textContent = vis ? 'Path' : 'Hide path';
+                });
+            }
         }
     }
 
