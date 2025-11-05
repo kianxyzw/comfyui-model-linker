@@ -1871,7 +1871,7 @@ class ManageOverridesDialog extends ComfyDialog {
                 </div>
                 <div style="height:1px; background: var(--border-color); opacity:.5;"></div>
                 <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
-                    <div style="flex:1 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><code title="${(m.path || '').split(/\\\\|\//).pop() || ''}">${(m.path || '').split(/\\\\|\//).pop() || ''}</code></div>
+                    <div style="flex:1 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><code title="${(m.path || '').split(/[\\/]/).pop() || ''}">${(m.path || '').split(/[\\/]/).pop() || ''}</code></div>
                     <div style="flex:0 0 auto;"><button id="ovr-pathbtn-${(m.key || '').replace(/[^a-zA-Z0-9_-]/g, '_')}" class="model-linker-resolve-btn" style="padding:4px 8px;">Path</button></div>
                 </div>
                 <div id="ovr-pathrow-${(m.key || '').replace(/[^a-zA-Z0-9_-]/g, '_')}" style="display:none; overflow-wrap:anywhere; opacity:.9;"><code title="${m.path || ''}">${m.path || ''}</code></div>
