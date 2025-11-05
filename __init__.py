@@ -58,7 +58,14 @@ class ModelLinkerExtension:
             try:
                 from .core.linker import analyze_and_find_matches, apply_resolution
                 from .core.scanner import get_model_files
-                from .core.overrides import record_override, load_overrides, get_overrides_path
+                from .core.overrides import (
+                    record_override,
+                    load_overrides,
+                    get_overrides_path,
+                    delete_override,
+                    clear_overrides,
+                    replace_overrides,
+                )
             except ImportError as e:
                 self.logger.error(f"Model Linker: Could not import core modules: {e}")
                 return False
@@ -206,6 +213,41 @@ class ModelLinkerExtension:
                 except Exception as e:
                     self.logger.error(f"Model Linker get_overrides error: {e}", exc_info=True)
                     return web.json_response({'error': str(e)}, status=500)
+
+            @routes.post("/model_linker/overrides/delete")
+            async def delete_override_api(request):
+                try:
+                    data = await request.json()
+                    key = (data or {}).get('key')
+                    if not key:
+                        return web.json_response({'success': False, 'error': 'key is required'}, status=400)
+                    removed = delete_override(key)
+                    return web.json_response({'success': removed})
+                except Exception as e:
+                    self.logger.error(f"Model Linker delete_override error: {e}", exc_info=True)
+                    return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+            @routes.post("/model_linker/overrides/clear")
+            async def clear_overrides_api(request):
+                try:
+                    clear_overrides()
+                    return web.json_response({'success': True})
+                except Exception as e:
+                    self.logger.error(f"Model Linker clear_overrides error: {e}", exc_info=True)
+                    return web.json_response({'success': False, 'error': str(e)}, status=500)
+
+            @routes.post("/model_linker/overrides/replace")
+            async def replace_overrides_api(request):
+                try:
+                    data = await request.json()
+                    overrides_doc = data.get('overrides')
+                    if overrides_doc is None:
+                        return web.json_response({'success': False, 'error': 'overrides payload required'}, status=400)
+                    ok = replace_overrides(overrides_doc)
+                    return web.json_response({'success': ok})
+                except Exception as e:
+                    self.logger.error(f"Model Linker replace_overrides error: {e}", exc_info=True)
+                    return web.json_response({'success': False, 'error': str(e)}, status=500)
             
             self.routes_setup = True
             self.logger.info("Model Linker: API routes registered successfully")

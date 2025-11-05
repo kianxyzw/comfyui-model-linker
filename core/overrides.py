@@ -66,6 +66,54 @@ def _save_overrides(doc: Dict[str, Any]) -> None:
         logging.warning(f"Model Linker: Failed to save overrides: {e}")
 
 
+def delete_override(key: str) -> bool:
+    """Delete a single override by its key. Returns True if removed."""
+    if not key:
+        return False
+    doc = load_overrides()
+    before = len(doc.get("mappings", []))
+    doc["mappings"] = [m for m in doc.get("mappings", []) if m.get("key") != key]
+    after = len(doc.get("mappings", []))
+    if after != before:
+        _save_overrides(doc)
+        return True
+    return False
+
+
+def clear_overrides() -> None:
+    """Clear all overrides (resets the document)."""
+    _save_overrides(_default_doc())
+
+
+def replace_overrides(new_doc: Dict[str, Any]) -> bool:
+    """Replace overrides with a new document if valid. Returns True on success."""
+    try:
+        if not isinstance(new_doc, dict):
+            return False
+        mappings = new_doc.get("mappings")
+        if mappings is None:
+            # Allow passing list directly
+            if isinstance(new_doc, list):
+                mappings = new_doc
+                new_doc = {"version": 1, "mappings": mappings}
+            else:
+                return False
+        if not isinstance(mappings, list):
+            return False
+        # Basic sanitize: only keep dict entries with key and path
+        clean: List[Dict[str, Any]] = []
+        for m in mappings:
+            if isinstance(m, dict) and m.get("key") and m.get("path"):
+                clean.append(m)
+        new_doc["version"] = int(new_doc.get("version", 1))
+        new_doc["mappings"] = clean
+        _save_overrides(new_doc)
+        return True
+    except Exception:
+        logging.exception("Model Linker: Failed to replace overrides")
+        return False
+
+
 def _make_keys(original_path: str, category: Optional[str]) -> List[str]:
     """
     Produce candidate keys for lookup.

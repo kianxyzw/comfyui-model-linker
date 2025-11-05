@@ -170,6 +170,25 @@ class LinkerManagerDialog extends ComfyDialog {
             ]),
             $el("div", { style: { display: "flex", gap: "8px", alignItems: "center" } }, [
                 $el("button", {
+                    id: "model-linker-overrides-btn",
+                    title: "Manage overrides",
+                    textContent: "Overrides",
+                    onclick: () => this.openOverridesManager(),
+                    style: {
+                        background: "none",
+                        border: "1px solid var(--border-color)",
+                        fontSize: "14px",
+                        cursor: "pointer",
+                        color: "var(--input-text)",
+                        padding: "2px 8px",
+                        height: "30px",
+                        borderRadius: "4px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center"
+                    }
+                }),
+                $el("button", {
                     id: "model-linker-fullscreen-toggle",
                     title: "Toggle full screen",
                     textContent: "⛶",
@@ -333,6 +352,15 @@ class LinkerManagerDialog extends ComfyDialog {
             if (col === '1') this.setQueueCollapsed(true);
         } catch (e) {}
         return body;
+    }
+
+    openOverridesManager() {
+        try {
+            if (!this.overridesDialog) this.overridesDialog = new ManageOverridesDialog();
+            this.overridesDialog.show();
+        } catch (e) {
+            console.error('Model Linker: failed to open overrides dialog', e);
+        }
     }
 
     createQueuePanel() {
@@ -1654,6 +1682,189 @@ class LinkerManagerDialog extends ComfyDialog {
             // Don't throw - allow the workflow update to continue even if UI update fails
             // The backend has already updated the workflow data
         }
+    }
+}
+
+class ManageOverridesDialog extends ComfyDialog {
+    constructor() {
+        super();
+        this.data = null;
+        this.search = '';
+        this.element = $el("div.comfy-modal", {
+            parent: document.body,
+            style: {
+                position: "fixed",
+                top: "50%",
+                left: "50%",
+                transform: "translate(-50%, -50%)",
+                width: "720px",
+                height: "520px",
+                maxWidth: "95vw",
+                maxHeight: "90vh",
+                backgroundColor: "var(--comfy-menu-bg, #202020)",
+                color: "var(--input-text, #ffffff)",
+                border: "2px solid var(--border-color, #555555)",
+                borderRadius: "8px",
+                padding: "0",
+                zIndex: "99999",
+                boxShadow: "0 4px 20px rgba(0,0,0,0.8)",
+                display: "none",
+                flexDirection: "column"
+            }
+        }, [
+            this._header(),
+            this._content(),
+            this._footer()
+        ]);
+    }
+
+    _header() {
+        return $el("div", {
+            style: {
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                padding: "12px 16px",
+                borderBottom: "1px solid var(--border-color)"
+            }
+        }, [
+            $el("h2", { textContent: "Manage Overrides", style: { margin: 0, fontSize: '16px' } }),
+            $el("button", { textContent: "×", onclick: () => this.close(), style: { background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: 'var(--input-text)' } })
+        ]);
+    }
+
+    _content() {
+        this.contentEl = $el("div", {
+            style: { padding: '12px', overflow: 'auto', flex: '1', minHeight: 0 }
+        }, [
+            $el("div", { style: { display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '8px' } }, [
+                $el("input", {
+                    id: 'ovr-search',
+                    placeholder: 'search overrides...',
+                    oninput: (e) => { this.search = e.target.value || ''; this.renderList(); },
+                    style: { flex: 1, padding: '6px' }
+                }),
+                $el("span", { id: 'ovr-count', textContent: '' })
+            ]),
+            this.listEl = $el("div", { id: 'ovr-list', style: { display: 'flex', flexDirection: 'column', gap: '6px' } })
+        ]);
+        return this.contentEl;
+    }
+
+    _footer() {
+        // Import
+        const fileInput = $el('input', { type: 'file', accept: '.json', style: { display: 'none' } });
+        const importBtn = $el('button', { className: 'model-linker-resolve-btn', textContent: 'Import JSON', onclick: () => fileInput.click(), style: { padding: '6px 10px' } });
+        fileInput.addEventListener('change', async (e) => {
+            const f = e.target.files && e.target.files[0];
+            if (!f) return;
+            try {
+                const text = await f.text();
+                const json = JSON.parse(text);
+                const resp = await api.fetchApi('/model_linker/overrides/replace', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ overrides: json }) });
+                const data = await resp.json();
+                if (data.success) {
+                    await this.load();
+                } else {
+                    alert('Import failed: ' + (data.error || 'unknown'));
+                }
+            } catch (err) {
+                alert('Invalid JSON: ' + err.message);
+            } finally {
+                e.target.value = '';
+            }
+        });
+
+        return $el("div", { style: { padding: '10px 12px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' } }, [
+            $el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } }, [
+                $el('button', { className: 'model-linker-resolve-btn', textContent: 'Export JSON', onclick: () => this.export(), style: { padding: '6px 10px' } }),
+                importBtn,
+                fileInput
+            ]),
+            $el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } }, [
+                $el('button', { className: 'model-linker-resolve-btn', textContent: 'Clear All', onclick: () => this.clearAll(), style: { padding: '6px 10px' } })
+            ])
+        ]);
+    }
+
+    async show() {
+        this.element.style.display = 'flex';
+        await this.load();
+    }
+
+    close() { this.element.style.display = 'none'; }
+
+    async load() {
+        try {
+            const resp = await api.fetchApi('/model_linker/overrides');
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            this.data = await resp.json();
+            this.renderList();
+        } catch (e) {
+            console.error('Overrides load error', e);
+            if (this.listEl) this.listEl.textContent = 'Error loading overrides';
+        }
+    }
+
+    renderList() {
+        if (!this.listEl) return;
+        const mappings = (this.data && this.data.overrides && this.data.overrides.mappings) || [];
+        const q = (this.search || '').toLowerCase();
+        const filtered = mappings.filter(m => {
+            const s = `${m.key || ''} ${m.original_filename || ''} ${m.category || ''} ${m.path || ''}`.toLowerCase();
+            return !q || s.includes(q);
+        });
+        const countEl = this.contentEl && this.contentEl.querySelector('#ovr-count');
+        if (countEl) countEl.textContent = `${filtered.length}/${mappings.length}`;
+        if (!filtered.length) {
+            this.listEl.innerHTML = '<div style="opacity:0.8;">No overrides</div>';
+            return;
+        }
+        let html = '';
+        for (const m of filtered) {
+            const delId = `ovr-del-${m.key}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+            html += `<div style="border:1px solid var(--border-color); border-radius:4px; padding:8px; display:flex; gap:8px; align-items:center;">
+                <div style="flex: 2 1 40%; font-weight:600;"><code>${m.original_filename || ''}</code> <span style="opacity:.8;">[${m.category || 'any'}]</span></div>
+                <div style="flex: 3 1 60%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><code title="${m.path || ''}">${m.path || ''}</code></div>
+                <div><button id="${delId}" class="model-linker-resolve-btn" style="padding:4px 8px;">Delete</button></div>
+            </div>`;
+        }
+        this.listEl.innerHTML = html;
+        // Wire delete
+        for (const m of filtered) {
+            const delId = `ovr-del-${m.key}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+            const btn = this.listEl.querySelector(`#${delId}`);
+            if (!btn) continue;
+            btn.addEventListener('click', async () => {
+                try {
+                    const resp = await api.fetchApi('/model_linker/overrides/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: m.key }) });
+                    const data = await resp.json();
+                    if (data.success) await this.load(); else alert('Delete failed');
+                } catch (e) { alert('Delete failed: ' + e.message); }
+            });
+        }
+    }
+
+    async clearAll() {
+        try {
+            const resp = await api.fetchApi('/model_linker/overrides/clear', { method: 'POST' });
+            const data = await resp.json();
+            if (data.success) await this.load(); else alert('Clear failed');
+        } catch (e) { alert('Clear failed: ' + e.message); }
+    }
+
+    export() {
+        try {
+            const doc = (this.data && this.data.overrides) || { version: 1, mappings: [] };
+            const blob = new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'overrides.json';
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a); }, 0);
+        } catch (e) { console.error('Export error', e); }
     }
 }
 
