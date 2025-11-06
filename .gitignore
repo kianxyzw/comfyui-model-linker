@@ -29,3 +29,5 @@ Thumbs.db
 *.bak
 *.cache
 
+# Project data
+/data/
