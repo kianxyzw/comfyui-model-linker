@@ -89,6 +89,78 @@ class LinkerManagerDialog extends ComfyDialog {
             }
         } catch (e) { /* ignore */ }
 
+        // Enforce modal layout to be vertical (column) regardless of ComfyUI updates
+        // and make the model search input comfortably sized
+        try {
+            if (!document.getElementById('model-linker-style-layout')) {
+                const layoutStyle = $el("style", {
+                    id: 'model-linker-style-layout',
+                    textContent: `
+                        /* Force our modals to be column-oriented flex containers */
+                        #model-linker-modal,
+                        #manage-overrides-modal {
+                            flex-direction: column !important;
+                            align-items: stretch !important;
+                            white-space: normal !important;
+                        }
+
+                        /* Ensure text wraps normally inside content */
+                        #model-linker-content, #model-linker-content * { white-space: normal !important; }
+
+                        /* Strongly enforce vertical stacking for the missing list */
+                        #model-linker-modal #model-linker-content { display: block !important; }
+                        #model-linker-modal #model-linker-missing-list {
+                            display: flex !important;
+                            flex-direction: column !important;
+                            align-items: stretch !important;
+                            gap: 16px !important;
+                        }
+                        #model-linker-modal #model-linker-missing-list > div {
+                            display: block !important;
+                        }
+                        /* Make direct children inside each missing item stack vertically */
+                        #model-linker-modal #model-linker-missing-list > div > div,
+                        #model-linker-modal #model-linker-missing-list > div > p,
+                        #model-linker-modal #model-linker-missing-list > div > ul,
+                        #model-linker-modal #model-linker-missing-list > div > li {
+                            display: block !important;
+                            width: auto !important;
+                        }
+
+                        /* Stack each missing-model section vertically while keeping internal rows */
+                        #model-linker-content div[id^="missing-"] {
+                            display: flex !important;
+                            flex-direction: column !important;
+                            align-items: stretch !important;
+                        }
+
+                        /* Ensure the body/content area can actually grow */
+                        #model-linker-modal #model-linker-body,
+                        #manage-overrides-modal { min-height: 0 !important; }
+
+                        /* Make the model search input readable and not tiny */
+                        #model-linker-modal input[id^="combo-input-"] {
+                            flex: 1 1 auto !important;
+                            min-width: 240px !important;
+                            padding: 6px 8px !important;
+                            font-size: 13px !important;
+                        }
+
+                        /* Improve the dropdown list layering and sizing */
+                        #model-linker-modal div[id^="combo-list-"] {
+                            z-index: 100000 !important;
+                            max-height: 320px !important;
+                        }
+                        /* Avoid wrapping inside dropdown labels when sizing */
+                        #model-linker-modal div[id^="combo-list-"] code {
+                            white-space: nowrap !important;
+                        }
+                    `
+                });
+                document.head.appendChild(layoutStyle);
+            }
+        } catch (e) { /* ignore */ }
+
         // Apply saved size if present and persist future resizes
         try {
             const saved = localStorage.getItem('model_linker_modal_size');
@@ -841,7 +913,7 @@ class LinkerManagerDialog extends ComfyDialog {
         }
 
         let html = `<p><strong>Found ${totalMissing} missing model(s):</strong></p>`;
-        html += '<div style="display: flex; flex-direction: column; gap: 16px;">';
+        html += '<div id="model-linker-missing-list" style="display: flex; flex-direction: column; gap: 16px;">';
 
         // Sort missing models: those with 100% confidence matches first, then others
         const sortedMissingModels = missingModels.sort((a, b) => {
@@ -950,7 +1022,7 @@ class LinkerManagerDialog extends ComfyDialog {
         const filteredMatches = allMatches.filter(m => m.confidence >= 70);
         const hasMatches = filteredMatches.length > 0;
 
-        let html = `<div id="missing-${missing.node_id}-${missing.widget_index}" style="border: 1px solid var(--border-color, #444); padding: 12px; border-radius: 4px;">`;
+        let html = `<div id="missing-${missing.node_id}-${missing.widget_index}" style="border: 1px solid var(--border-color, #444); padding: 12px; border-radius: 4px; display:flex; flex-direction:column; align-items:stretch; gap:8px; white-space: normal;">`;
         
         // Display subgraph name as primary identifier if available, otherwise show node type
         // A node type that's a UUID indicates it's a subgraph instance
@@ -966,7 +1038,7 @@ class LinkerManagerDialog extends ComfyDialog {
             } else {
                 html += `<button id="${locateId}" class="model-linker-resolve-btn" style="padding:2px 8px;">Locate</button>`;
             }
-            
+            html += `</div>`;
         } else if (isSubgraphNode) {
             // Node type is a UUID (subgraph) but we don't have the name (shouldn't happen, but handle gracefully)
             html += `<div style="margin-bottom: 8px; display:flex; align-items:center; justify-content:space-between; gap:8px;">`;
@@ -1065,11 +1137,7 @@ class LinkerManagerDialog extends ComfyDialog {
             html += `<div style="color: orange; margin-top: 8px;">No matches found.</div>`;
         }
 
-        // Always show a compact summary and the full-model search picker
-        html += `<div class="model-linker-missing-summary" style="margin: 8px 0; padding: 8px; border: 1px dashed var(--border-color, #444); border-radius: 4px; background: var(--comfy-input-bg, #2f2f2f);">`;
-        html += `<div><strong>Missing Model:</strong> <code>${missing.original_path}</code></div>`;
-        html += `<div><strong>Category:</strong> ${missing.category || 'unknown'}</div>`;
-        html += `</div>`;
+        // Compact summary removed (duplicate of info shown above)
 
         // combo picker injected via attachModelCombo
         
@@ -1463,7 +1531,7 @@ class LinkerManagerDialog extends ComfyDialog {
                 <input id="${inputId}" type="text" placeholder="type to filter..." style="flex:1; padding:4px;" />
                 <button id="${refreshId}" title="Refresh model list" class="model-linker-resolve-btn" style="padding:2px 8px;">⟳</button>
             </div>
-            <div id="${listId}" style="position:absolute; top:100%; left:0; right:0; background: var(--comfy-input-bg, #2f2f2f); border:1px solid var(--border-color); border-radius:4px; max-height:280px; overflow:auto; display:none; z-index:100000;"></div>
+            <div id="${listId}" style="position:absolute; top:100%; left:0; background: var(--comfy-input-bg, #2f2f2f); border:1px solid var(--border-color); border-radius:4px; max-height:280px; overflow:auto; display:none; z-index:100000;"></div>
         `;
         selectedBar.after(comboWrap);
 
@@ -1513,23 +1581,66 @@ class LinkerManagerDialog extends ComfyDialog {
         const buildSuggestions = (query) => {
             const pool = getPool();
             const q = (query || '').toLowerCase();
-            const items = pool.map(m => {
+            // Deduplicate by normalized label (relative_path || filename) to hide symlink duplicates
+            const bestByKey = new Map();
+            for (const m of pool) {
                 const label = m.relative_path || m.filename || '';
-                return { m, label, saved: savedPaths.has(m.path) };
-            }).filter(x => !q || (x.label || '').toLowerCase().includes(q));
+                const labelNorm = (label || '').toLowerCase().replace(/[\\/]+/g, '/');
+                if (q && !labelNorm.includes(q)) continue;
+                const saved = savedPaths.has(m.path);
+                const curr = bestByKey.get(labelNorm);
+                // Prefer a saved entry if available; otherwise keep the first
+                if (!curr || (saved && !curr.saved)) {
+                    bestByKey.set(labelNorm, { m, label, saved });
+                }
+            }
+            const items = Array.from(bestByKey.values());
             // sort: saved first, then label asc
             items.sort((a, b) => {
                 if (a.saved && !b.saved) return -1;
                 if (!a.saved && b.saved) return 1;
                 return (a.label || '').localeCompare(b.label || '');
             });
-            // limit to avoid giant DOM
-            return items.slice(0, 100).map(x => x.m);
+            // return all deduplicated items so user can scroll entire list
+            return items.map(x => x.m);
         };
 
         let currentItems = [];
         let activeIndex = -1;
-        const openList = () => { listEl.style.display = 'block'; };
+        // Align dropdown under input and size to fit longest item (min: input width)
+        const updateListPosition = () => {
+            try {
+                const wrapRect = comboWrap.getBoundingClientRect();
+                const inputRect = inputEl.getBoundingClientRect();
+                const left = Math.max(0, Math.round(inputRect.left - wrapRect.left));
+                const minW = Math.round(inputRect.width);
+                const prevDisplay = listEl.style.display;
+                const prevVis = listEl.style.visibility;
+                if (prevDisplay === 'none') {
+                    listEl.style.visibility = 'hidden';
+                    listEl.style.display = 'block';
+                }
+                const prevWidth = listEl.style.width;
+                listEl.style.width = 'auto';
+                // Prevent wrapping in labels when measuring
+                try {
+                    listEl.querySelectorAll('code').forEach(c => c.style.whiteSpace = 'nowrap');
+                } catch (e) {}
+                let contentW = Math.ceil(listEl.scrollWidth);
+                const viewportRight = window.innerWidth - 16;
+                const maxAllowed = Math.max(200, viewportRight - inputRect.left);
+                const finalW = Math.max(minW, Math.min(contentW || minW, maxAllowed));
+                listEl.style.left = left + 'px';
+                listEl.style.right = 'auto';
+                listEl.style.width = finalW + 'px';
+                if (prevDisplay === 'none') {
+                    listEl.style.display = prevDisplay;
+                    listEl.style.visibility = prevVis || '';
+                    listEl.style.width = prevWidth;
+                }
+            } catch (_) {}
+        };
+        const openList = () => { updateListPosition(); listEl.style.display = 'block'; };
         const closeList = () => { listEl.style.display = 'none'; activeIndex = -1; };
         const isOpen = () => listEl.style.display !== 'none';
 
@@ -1539,10 +1650,22 @@ class LinkerManagerDialog extends ComfyDialog {
             if (currentItems.length && activeIndex < 0) activeIndex = 0;
             if (!currentItems.length) activeIndex = -1;
             renderList(currentItems, q, activeIndex);
+            // Recompute width for new content
+            updateListPosition();
         };
 
         inputEl.addEventListener('focus', () => { openList(); updateList(); });
         inputEl.addEventListener('input', this.debounce(() => { updateList(); openList(); }, 120));
+        // Keep dropdown aligned on resize
+        window.addEventListener('resize', updateListPosition);
+        if (window.ResizeObserver) {
+            try {
+                const roPos = new ResizeObserver(() => updateListPosition());
+                roPos.observe(comboWrap);
+                roPos.observe(inputEl);
+                this._comboROs = (this._comboROs || []).concat(roPos);
+            } catch (e) { /* ignore */ }
+        }
         inputEl.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') { closeList(); return; }
             if (e.key === 'ArrowDown') {
