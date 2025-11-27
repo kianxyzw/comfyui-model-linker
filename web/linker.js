@@ -875,6 +875,18 @@ const modelLinker = new ModelLinker();
 // Register the extension
 app.registerExtension({
     name: "Model Linker",
-    setup: modelLinker.setup
+    setup: modelLinker.setup,
+	commands: [
+		{
+			id: "openModelLinker",
+			label: "Open Model Linker",
+			function: modelLinker.openLinkerManager
+		}
+	],
+	keybindings: [
+		{
+			combo: { key: "l", ctrl: true, shift: true },
+			commandId: "openModelLinker"
+		}
+	]
 });
-
