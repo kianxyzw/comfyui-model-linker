@@ -1,6 +1,6 @@
 /**
  * ComfyUI Model Linker Extension - Frontend
- * 
+ *
  * Provides a menu button and dialog interface for relinking missing models in workflows.
  */
 
@@ -33,7 +33,7 @@ class LinkerManagerDialog extends ComfyDialog {
         super();
         this.currentWorkflow = null;
         this.missingModels = [];
-        
+
         // Create dialog element using $el
         this.element = $el("div.comfy-modal", {
             parent: document.body,
@@ -62,7 +62,7 @@ class LinkerManagerDialog extends ComfyDialog {
             this.createFooter()
         ]);
     }
-    
+
     createHeader() {
         return $el("div", {
             style: {
@@ -103,7 +103,7 @@ class LinkerManagerDialog extends ComfyDialog {
             })
         ]);
     }
-    
+
     createContent() {
         this.contentElement = $el("div", {
             id: "model-linker-content",
@@ -116,7 +116,7 @@ class LinkerManagerDialog extends ComfyDialog {
         });
         return this.contentElement;
     }
-    
+
     createFooter() {
         return $el("div", {
             style: {
@@ -137,12 +137,12 @@ class LinkerManagerDialog extends ComfyDialog {
             })
         ]);
     }
-    
+
     async show() {
         this.element.style.display = "flex";
         await this.loadWorkflowData();
     }
-    
+
     close() {
         this.element.style.display = "none";
     }
@@ -161,7 +161,7 @@ class LinkerManagerDialog extends ComfyDialog {
             if (!workflow) {
                 workflow = this.getCurrentWorkflow();
             }
-            
+
             if (!workflow) {
                 this.contentElement.innerHTML = '<p>No workflow loaded. Please load a workflow first.</p>';
                 return;
@@ -225,23 +225,23 @@ class LinkerManagerDialog extends ComfyDialog {
         const sortedMissingModels = missingModels.sort((a, b) => {
             const aMatches = a.matches || [];
             const bMatches = b.matches || [];
-            
+
             // Filter to 70%+ confidence
             const aFiltered = aMatches.filter(m => m.confidence >= 70);
             const bFiltered = bMatches.filter(m => m.confidence >= 70);
-            
+
             // Check if they have 100% matches
             const aHas100 = aFiltered.some(m => m.confidence === 100);
             const bHas100 = bFiltered.some(m => m.confidence === 100);
-            
+
             // If one has 100% and the other doesn't, prioritize the one with 100%
             if (aHas100 && !bHas100) return -1;
             if (!aHas100 && bHas100) return 1;
-            
+
             // If both have 100% or neither has 100%, sort by best confidence
             const aBestConf = aFiltered.length > 0 ? Math.max(...aFiltered.map(m => m.confidence)) : 0;
             const bBestConf = bFiltered.length > 0 ? Math.max(...bFiltered.map(m => m.confidence)) : 0;
-            
+
             return bBestConf - aBestConf; // Higher confidence first
         });
 
@@ -256,26 +256,26 @@ class LinkerManagerDialog extends ComfyDialog {
         // Note: We need to match the exact same logic as renderMissingModel to find which buttons were rendered
         sortedMissingModels.forEach((missing, missingIndex) => {
             const allMatches = missing.matches || [];
-            
+
             // Filter out matches below 70% confidence threshold
             const filteredMatches = allMatches.filter(m => m.confidence >= 70);
-            
+
             // Filter to only 100% matches if available, otherwise use filtered matches (>=70%)
             const perfectMatches = filteredMatches.filter(m => m.confidence === 100);
             const otherMatches = filteredMatches.filter(m => m.confidence < 100 && m.confidence >= 70);
-            
+
             // Match the same logic as renderMissingModel
-            const matchesToShow = perfectMatches.length > 0 
-                ? perfectMatches 
+            const matchesToShow = perfectMatches.length > 0
+                ? perfectMatches
                 : otherMatches.sort((a, b) => b.confidence - a.confidence).slice(0, 5);
-            
+
             // Sort: 100% matches first, then by confidence descending (same as renderMissingModel)
             const sortedMatches = matchesToShow.sort((a, b) => {
                 if (a.confidence === 100 && b.confidence !== 100) return -1;
                 if (a.confidence !== 100 && b.confidence === 100) return 1;
                 return b.confidence - a.confidence;
             });
-            
+
             sortedMatches.forEach((match, matchIndex) => {
                 // Attach listener to all matches (all now have resolve buttons)
                 const buttonId = `resolve-${missing.node_id}-${missing.widget_index}-${matchIndex}`;
@@ -294,17 +294,17 @@ class LinkerManagerDialog extends ComfyDialog {
      */
     renderMissingModel(missing) {
         const allMatches = missing.matches || [];
-        
+
         // Filter out matches below 70% confidence threshold
         const filteredMatches = allMatches.filter(m => m.confidence >= 70);
         const hasMatches = filteredMatches.length > 0;
 
         let html = `<div style="border: 1px solid var(--border-color, #444); padding: 12px; border-radius: 4px;">`;
-        
+
         // Display subgraph name as primary identifier if available, otherwise show node type
         // A node type that's a UUID indicates it's a subgraph instance
         const isSubgraphNode = missing.node_type && missing.node_type.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
-        
+
         if (missing.subgraph_name) {
             // Show subgraph name as primary identifier
             html += `<div style="margin-bottom: 8px;"><strong>Subgraph:</strong> ${missing.subgraph_name} (ID: ${missing.node_id})</div>`;
@@ -321,26 +321,26 @@ class LinkerManagerDialog extends ComfyDialog {
         if (hasMatches) {
             // Filter out matches below 70% confidence threshold
             const filteredMatches = allMatches.filter(m => m.confidence >= 70);
-            
+
             // Separate 100% matches from others (from filtered list)
             const perfectMatches = filteredMatches.filter(m => m.confidence === 100);
             const otherMatches = filteredMatches.filter(m => m.confidence < 100 && m.confidence >= 70);
-            
+
             // If we have 100% matches, only show those. Otherwise, show other matches sorted by confidence
-            const matchesToShow = perfectMatches.length > 0 
-                ? perfectMatches 
+            const matchesToShow = perfectMatches.length > 0
+                ? perfectMatches
                 : otherMatches.sort((a, b) => b.confidence - a.confidence).slice(0, 5);
-            
+
             html += `<div style="margin-top: 12px;"><strong>Suggested Matches:</strong></div>`;
             html += '<ul style="margin: 8px 0; padding-left: 20px;">';
-            
+
             // Sort: 100% matches first, then by confidence descending
             const sortedMatches = matchesToShow.sort((a, b) => {
                 if (a.confidence === 100 && b.confidence !== 100) return -1;
                 if (a.confidence !== 100 && b.confidence === 100) return 1;
                 return b.confidence - a.confidence;
             });
-            
+
             for (let matchIndex = 0; matchIndex < sortedMatches.length; matchIndex++) {
                 const match = sortedMatches[matchIndex];
                 const buttonId = `resolve-${missing.node_id}-${missing.widget_index}-${matchIndex}`;
@@ -350,15 +350,15 @@ class LinkerManagerDialog extends ComfyDialog {
                     (${match.confidence}% confidence)
                 </span>`;
                 // Show resolve button for all matches (100% or < 100%)
-                html += ` <button id="${buttonId}" 
+                html += ` <button id="${buttonId}"
                     class="model-linker-resolve-btn" style="margin-left: 8px; padding: 4px 8px;">
                     Resolve
                 </button>`;
                 html += `</li>`;
             }
-            
+
             html += '</ul>';
-            
+
             // Add note if only showing 100% matches
             if (perfectMatches.length > 0 && otherMatches.length > 0) {
                 html += `<div style="color: #888; font-size: 12px; margin-top: 8px; font-style: italic;">Showing only 100% confidence matches. ${otherMatches.length} other match${otherMatches.length > 1 ? 'es' : ''} available.</div>`;
@@ -527,15 +527,15 @@ class LinkerManagerDialog extends ComfyDialog {
             }
 
             const data = await response.json();
-            
+
             if (data.success) {
                 // Update workflow in ComfyUI
                 await this.updateWorkflowInComfyUI(data.workflow);
-                
+
                 // Show success notification
                 const modelName = resolvedModel.relative_path || resolvedModel.filename || 'model';
                 this.showNotification(`✓ Model linked successfully: ${modelName}`, 'success');
-                
+
                 // Reload dialog using the updated workflow from API response
                 // This ensures we're analyzing the correct updated workflow
                 await this.loadWorkflowData(data.workflow);
@@ -581,7 +581,7 @@ class LinkerManagerDialog extends ComfyDialog {
             for (const missing of missingModels) {
                 const matches = missing.matches || [];
                 const perfectMatch = matches.find((m) => m.confidence === 100);
-                
+
                 if (perfectMatch && perfectMatch.model) {
                     resolutions.push({
                         node_id: missing.node_id,
@@ -615,17 +615,17 @@ class LinkerManagerDialog extends ComfyDialog {
             }
 
             const resolveData = await resolveResponse.json();
-            
+
             if (resolveData.success) {
                 // Update workflow in ComfyUI
                 await this.updateWorkflowInComfyUI(resolveData.workflow);
-                
+
                 // Show success notification
                 this.showNotification(
                     `✓ Successfully linked ${resolutions.length} model${resolutions.length > 1 ? 's' : ''}!`,
                     'success'
                 );
-                
+
                 // Reload dialog using the updated workflow from API response
                 // This ensures we're analyzing the correct updated workflow
                 await this.loadWorkflowData(resolveData.workflow);
@@ -875,6 +875,18 @@ const modelLinker = new ModelLinker();
 // Register the extension
 app.registerExtension({
     name: "Model Linker",
-    setup: modelLinker.setup
+    setup: modelLinker.setup,
+	commands: [
+		{
+			id: "openModelLinker",
+			label: "Open Model Linker",
+			function: () => modelLinker.openLinkerManager()
+		}
+	],
+	keybindings: [
+		{
+			combo: { key: "l", ctrl: true, shift: true },
+			commandId: "openModelLinker"
+		}
+	]
 });
-
