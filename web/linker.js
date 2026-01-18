@@ -683,6 +683,14 @@ class ModelLinker {
             this.dialog = new LinkerManagerDialog();
         }
 
+        // Register keyboard shortcut (Ctrl+Shift+L)
+        document.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'l') {
+                e.preventDefault();
+                this.openLinkerManager();
+            }
+        });
+
         // Try to use new ComfyUI button system (like ComfyUI Manager does)
         try {
             // Dynamic imports for ComfyUI's button components
@@ -694,7 +702,7 @@ class ModelLinker {
                 new ComfyButton({
                     icon: "link-variant",
                     action: () => this.openLinkerManager(),
-                    tooltip: "Model Linker - Resolve missing models in workflow",
+                    tooltip: "Model Linker - Resolve missing models (Ctrl+Shift+L)",
                     content: "Model Linker",
                     classList: "comfyui-button comfyui-menu-mobile-collapse"
                 }).element
@@ -734,7 +742,7 @@ class ModelLinker {
         this.linkerButton = $el("button", {
             id: this.buttonId,
             textContent: "🔗 Model Linker",
-            title: "Open Model Linker to resolve missing models in workflow",
+            title: "Open Model Linker to resolve missing models (Ctrl+Shift+L)",
             onclick: () => {
                 this.openLinkerManager();
             },
