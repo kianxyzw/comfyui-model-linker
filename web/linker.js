@@ -10,24 +10,6 @@ import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 import { $el, ComfyDialog } from "../../../scripts/ui.js";
 
-// Check if ComfyButtonGroup is available (from newer ComfyUI versions)
-let ComfyButtonGroup = null;
-try {
-    // Try to import from scripts if available
-    if (typeof window !== 'undefined') {
-        try {
-            // Some ComfyUI versions expose this globally
-            if (window.ComfyButtonGroup) {
-                ComfyButtonGroup = window.ComfyButtonGroup;
-            }
-        } catch (e) {
-            // Ignore
-        }
-    }
-} catch (e) {
-    // Fallback if ComfyButtonGroup not available
-}
-
 class LinkerManagerDialog extends ComfyDialog {
     constructor() {
         super();
@@ -687,66 +669,43 @@ class LinkerManagerDialog extends ComfyDialog {
 class ModelLinker {
     constructor() {
         this.linkerButton = null;
+        this.buttonGroup = null;
         this.buttonId = "model-linker-button";
         this.dialog = null;
     }
 
-    setup = () => {
+    setup = async () => {
         // Remove any existing button
         this.removeExistingButton();
 
-        // Find a visible menu element
-        const allMenus = document.querySelectorAll("[class*='menu']");
-
-        // Try to find a visible menu
-        let visibleMenu = null;
-        for (const menu of allMenus) {
-            const style = window.getComputedStyle(menu);
-            if (style.display !== 'none' && style.visibility !== 'hidden') {
-                visibleMenu = menu;
-                break;
-            }
-        }
-
-        // Try alternative: app.menu.settingsGroup
-        if (!visibleMenu && app.menu?.settingsGroup?.element) {
-            visibleMenu = app.menu.settingsGroup.element.parentElement;
-        }
-
-        // Try alternative selectors for the top bar
-        if (!visibleMenu) {
-            const alternatives = [
-                'header',
-                '.header',
-                '.top-bar',
-                '.toolbar',
-                '.nav',
-                '.navigation',
-                '[role="toolbar"]',
-                '[role="menubar"]'
-            ];
-
-            for (const selector of alternatives) {
-                const element = document.querySelector(selector);
-                if (element) {
-                    const style = window.getComputedStyle(element);
-                    if (style.display !== 'none' && style.visibility !== 'hidden') {
-                        visibleMenu = element;
-                        break;
-                    }
-                }
-            }
-        }
-
-        if (visibleMenu) {
-            this.createLinkerButton(visibleMenu);
-        } else {
-            this.createFloatingButton();
-        }
-
-        // Create dialog instance (will be created on demand)
+        // Create dialog instance
         if (!this.dialog) {
             this.dialog = new LinkerManagerDialog();
+        }
+
+        // Try to use new ComfyUI button system (like ComfyUI Manager does)
+        try {
+            // Dynamic imports for ComfyUI's button components
+            const { ComfyButtonGroup } = await import("../../../scripts/ui/components/buttonGroup.js");
+            const { ComfyButton } = await import("../../../scripts/ui/components/button.js");
+
+            // Create button group with Model Linker button
+            this.buttonGroup = new ComfyButtonGroup(
+                new ComfyButton({
+                    icon: "link-variant",
+                    action: () => this.openLinkerManager(),
+                    tooltip: "Model Linker - Resolve missing models in workflow",
+                    content: "Model Linker",
+                    classList: "comfyui-button comfyui-menu-mobile-collapse"
+                }).element
+            );
+
+            // Insert before settings group in the menu
+            app.menu?.settingsGroup.element.before(this.buttonGroup.element);
+        } catch (e) {
+            // Fallback for older ComfyUI versions without the new button system
+            console.log('Model Linker: New button system not available, using floating button fallback.');
+            this.createFloatingButton();
         }
     }
 
@@ -757,6 +716,12 @@ class ModelLinker {
             existingButton.remove();
         }
 
+        // Remove button group if it exists
+        if (this.buttonGroup?.element?.parentNode) {
+            this.buttonGroup.element.remove();
+            this.buttonGroup = null;
+        }
+
         // Also remove the stored reference if it exists
         if (this.linkerButton && this.linkerButton.parentNode) {
             this.linkerButton.remove();
@@ -764,59 +729,8 @@ class ModelLinker {
         }
     }
 
-    createLinkerButton(menu) {
-        this.linkerButton = $el("button", {
-            id: this.buttonId,
-            textContent: "🔗 Model Linker",
-            title: "Open Model Linker to resolve missing models in workflow",
-            onclick: () => {
-                this.openLinkerManager();
-            },
-            style: {
-                backgroundColor: "var(--comfy-input-bg, #353535)",
-                color: "var(--input-text, #ffffff)",
-                border: "2px solid var(--border-color, #555555)",
-                padding: "8px 16px",
-                margin: "4px",
-                borderRadius: "6px",
-                cursor: "pointer",
-                fontSize: "14px",
-                fontWeight: "600",
-                display: "inline-block",
-                minWidth: "80px",
-                textAlign: "center",
-                zIndex: "1000",
-                position: "relative",
-                transition: "all 0.2s ease",
-                whiteSpace: "nowrap"
-            }
-        });
-
-        // Add hover effects
-        this.linkerButton.addEventListener("mouseenter", () => {
-            this.linkerButton.style.backgroundColor = "var(--comfy-input-bg-hover, #4a4a4a)";
-            this.linkerButton.style.borderColor = "var(--primary-color, #007acc)";
-            this.linkerButton.style.transform = "translateY(-1px)";
-            this.linkerButton.style.boxShadow = "0 2px 4px rgba(0,0,0,0.2)";
-        });
-
-        this.linkerButton.addEventListener("mouseleave", () => {
-            this.linkerButton.style.backgroundColor = "var(--comfy-input-bg, #353535)";
-            this.linkerButton.style.borderColor = "var(--border-color, #555555)";
-            this.linkerButton.style.transform = "translateY(0)";
-            this.linkerButton.style.boxShadow = "none";
-        });
-
-        // Try to insert before settings group if using app.menu
-        if (app.menu?.settingsGroup?.element && menu === app.menu.settingsGroup.element.parentElement) {
-            app.menu.settingsGroup.element.before(this.linkerButton);
-        } else {
-            menu.appendChild(this.linkerButton);
-        }
-    }
-
     createFloatingButton() {
-        // Create a floating button as fallback
+        // Create a floating button as fallback for legacy ComfyUI versions
         this.linkerButton = $el("button", {
             id: this.buttonId,
             textContent: "🔗 Model Linker",
