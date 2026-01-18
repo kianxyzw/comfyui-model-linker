@@ -16,6 +16,22 @@ class LinkerManagerDialog extends ComfyDialog {
         this.currentWorkflow = null;
         this.missingModels = [];
         this.activeDownloads = {};  // Track active downloads
+        this.boundHandleOutsideClick = this.handleOutsideClick.bind(this);
+        
+        // Create backdrop overlay for click-outside-to-close
+        this.backdrop = $el("div.model-linker-backdrop", {
+            parent: document.body,
+            style: {
+                position: "fixed",
+                top: "0",
+                left: "0",
+                width: "100vw",
+                height: "100vh",
+                backgroundColor: "rgba(0, 0, 0, 0.5)",
+                zIndex: "99998",
+                display: "none"
+            }
+        });
         
         // Create dialog element using $el
         this.element = $el("div.comfy-modal", {
@@ -44,6 +60,19 @@ class LinkerManagerDialog extends ComfyDialog {
             this.createContent(),
             this.createFooter()
         ]);
+        
+        // Add click listener to backdrop
+        this.backdrop.addEventListener('click', () => this.close());
+    }
+    
+    /**
+     * Handle clicks outside the dialog
+     */
+    handleOutsideClick(e) {
+        // Close if click is on the backdrop (not on the dialog itself)
+        if (e.target === this.backdrop) {
+            this.close();
+        }
     }
     
     createHeader() {
@@ -122,11 +151,13 @@ class LinkerManagerDialog extends ComfyDialog {
     }
     
     async show() {
+        this.backdrop.style.display = "block";
         this.element.style.display = "flex";
         await this.loadWorkflowData();
     }
     
     close() {
+        this.backdrop.style.display = "none";
         this.element.style.display = "none";
     }
 
@@ -379,17 +410,28 @@ class LinkerManagerDialog extends ComfyDialog {
             if (downloadSource && downloadSource.url) {
                 // We have a known download URL - show Download button
                 const isExact = downloadSource.match_type === 'exact' || downloadSource.source === 'popular' || downloadSource.source === 'huggingface' || downloadSource.source === 'civitai';
+                const isFromWorkflow = downloadSource.url_source === 'workflow';
                 const confidence = downloadSource.confidence ? ` (${downloadSource.confidence}% match)` : '';
                 const sourceLabels = {
                     'popular': 'Popular Models',
                     'model_list': 'Model Database',
                     'huggingface': 'HuggingFace',
-                    'civitai': 'CivitAI'
+                    'civitai': 'CivitAI',
+                    'workflow': 'Workflow'
                 };
-                const sourceLabel = sourceLabels[downloadSource.source] || 'Online';
+                // If URL is from workflow, show that as primary source
+                const sourceLabel = isFromWorkflow ? 'Workflow' : (sourceLabels[downloadSource.source] || 'Online');
                 const downloadFilename = downloadSource.filename || filename;
                 const modelName = downloadSource.name ? ` (${downloadSource.name})` : '';
-                const size = downloadSource.size ? ` [${downloadSource.size}]` : '';
+                // Format file size - if it's a number (bytes), format it nicely
+                let sizeDisplay = '';
+                if (downloadSource.size) {
+                    if (typeof downloadSource.size === 'number') {
+                        sizeDisplay = this.formatBytes(downloadSource.size);
+                    } else {
+                        sizeDisplay = downloadSource.size;
+                    }
+                }
                 
                 html += `<div style="display: flex; align-items: flex-start; gap: 12px;">`;
                 html += `<button id="download-${missing.node_id}-${missing.widget_index}" 
@@ -399,10 +441,28 @@ class LinkerManagerDialog extends ComfyDialog {
                 </button>`;
                 html += `<div style="flex: 1; font-size: 12px;">`;
                 html += `<div style="color: ${isExact ? '#4CAF50' : '#9C27B0'};">`;
-                html += isExact ? `✓ Found on ${sourceLabel}` : `~ Similar model found${confidence}`;
+                if (isFromWorkflow) {
+                    html += `✓ URL embedded in workflow`;
+                } else {
+                    html += isExact ? `✓ Found on ${sourceLabel}` : `~ Similar model found${confidence}`;
+                }
                 html += `</div>`;
                 html += `<div style="color: #888; margin-top: 2px;">`;
-                html += `<code>${downloadFilename}</code>${modelName}${size}`;
+                // Make filename a clickable link to model card if we can extract it
+                const modelCardUrl = this.getModelCardUrl(downloadSource.url);
+                if (modelCardUrl) {
+                    html += `<a href="${modelCardUrl}" target="_blank" rel="noopener noreferrer" 
+                        style="color: #8ab4f8; text-decoration: none;" 
+                        onmouseover="this.style.textDecoration='underline'" 
+                        onmouseout="this.style.textDecoration='none'"
+                        title="Open model card"><code>${downloadFilename}</code></a>`;
+                } else {
+                    html += `<code>${downloadFilename}</code>`;
+                }
+                html += `${modelName}`;
+                if (sizeDisplay) {
+                    html += ` <span style="color: #aaa; font-weight: 500;">[${sizeDisplay}]</span>`;
+                }
                 html += `</div>`;
                 html += `</div>`;
                 html += `</div>`;
@@ -538,7 +598,7 @@ class LinkerManagerDialog extends ComfyDialog {
     }
 
     /**
-     * Resolve a single model
+     * Resolve a model - resolves ALL nodes that reference this model
      */
     async resolveModel(missing, resolvedModel) {
         if (!resolvedModel) {
@@ -553,22 +613,24 @@ class LinkerManagerDialog extends ComfyDialog {
                 return;
             }
 
-            const resolution = {
-                node_id: missing.node_id,
-                widget_index: missing.widget_index,
+            // Resolve ALL nodes that need this model (all_node_refs contains deduplicated refs)
+            const nodeRefs = missing.all_node_refs || [missing];
+            const resolutions = nodeRefs.map(ref => ({
+                node_id: ref.node_id,
+                widget_index: ref.widget_index,
                 resolved_path: resolvedModel.path,
-                category: missing.category,
+                category: ref.category,
                 resolved_model: resolvedModel,
-                subgraph_id: missing.subgraph_id,  // Include subgraph_id for subgraph nodes
-                is_top_level: missing.is_top_level  // True for top-level nodes, False for nodes in subgraph definitions
-            };
+                subgraph_id: ref.subgraph_id,
+                is_top_level: ref.is_top_level
+            }));
 
             const response = await api.fetchApi('/model_linker/resolve', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     workflow,
-                    resolutions: [resolution]
+                    resolutions: resolutions
                 })
             });
 
@@ -584,7 +646,9 @@ class LinkerManagerDialog extends ComfyDialog {
                 
                 // Show success notification
                 const modelName = resolvedModel.relative_path || resolvedModel.filename || 'model';
-                this.showNotification(`✓ Model linked successfully: ${modelName}`, 'success');
+                const count = resolutions.length;
+                const refText = count > 1 ? ` (${count} references)` : '';
+                this.showNotification(`✓ Model linked successfully: ${modelName}${refText}`, 'success');
                 
                 // Reload dialog using the updated workflow from API response
                 // This ensures we're analyzing the correct updated workflow
@@ -690,6 +754,101 @@ class LinkerManagerDialog extends ComfyDialog {
     }
 
     /**
+     * Auto-resolve a model after download completes
+     * Reloads the workflow analysis and resolves if the downloaded model is found
+     */
+    async autoResolveAfterDownload(missing, downloadedFilename) {
+        try {
+            const workflow = this.getCurrentWorkflow();
+            if (!workflow) {
+                // Just reload the UI to show updated state
+                await this.loadWorkflowData();
+                return;
+            }
+
+            // Re-analyze workflow to find the newly downloaded model
+            const analyzeResponse = await api.fetchApi('/model_linker/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ workflow })
+            });
+
+            if (!analyzeResponse.ok) {
+                // Just reload UI
+                await this.loadWorkflowData();
+                return;
+            }
+
+            const analyzeData = await analyzeResponse.json();
+            const missingModels = analyzeData.missing_models || [];
+
+            // Find the missing model entry that matches our download by filename
+            const targetMissing = missingModels.find(m => {
+                const missingFilename = m.original_path?.split('/').pop()?.split('\\').pop() || '';
+                return missingFilename.toLowerCase() === downloadedFilename.toLowerCase();
+            });
+
+            if (!targetMissing) {
+                // Model no longer missing - already resolved or workflow changed
+                await this.loadWorkflowData();
+                return;
+            }
+
+            // Look for a 100% match with the downloaded filename
+            const matches = targetMissing.matches || [];
+            const perfectMatch = matches.find(m => {
+                const matchFilename = m.filename || m.model?.filename || '';
+                // Check for exact match or 100% confidence
+                return m.confidence === 100 || 
+                       matchFilename.toLowerCase() === downloadedFilename.toLowerCase();
+            });
+
+            if (perfectMatch && perfectMatch.model) {
+                // Auto-resolve ALL nodes that need this model
+                // all_node_refs contains all nodes referencing this model (deduplicated)
+                const nodeRefs = targetMissing.all_node_refs || [targetMissing];
+                const resolutions = nodeRefs.map(ref => ({
+                    node_id: ref.node_id,
+                    widget_index: ref.widget_index,
+                    resolved_path: perfectMatch.model.path,
+                    category: ref.category,
+                    resolved_model: perfectMatch.model,
+                    subgraph_id: ref.subgraph_id,
+                    is_top_level: ref.is_top_level
+                }));
+
+                const resolveResponse = await api.fetchApi('/model_linker/resolve', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        workflow,
+                        resolutions: resolutions
+                    })
+                });
+
+                if (resolveResponse.ok) {
+                    const resolveData = await resolveResponse.json();
+                    if (resolveData.success) {
+                        await this.updateWorkflowInComfyUI(resolveData.workflow);
+                        const count = resolutions.length;
+                        this.showNotification(`✓ Auto-resolved: ${downloadedFilename} (${count} reference${count > 1 ? 's' : ''})`, 'success');
+                        await this.loadWorkflowData(resolveData.workflow);
+                        return;
+                    }
+                }
+            }
+
+            // If we couldn't auto-resolve, just reload the UI
+            await this.loadWorkflowData();
+
+        } catch (error) {
+            console.error('Model Linker: Error auto-resolving after download:', error);
+            // Still reload UI even on error
+            await this.loadWorkflowData();
+        }
+    }
+
+    /**
      * Download a model from a known source
      */
     async downloadModel(missing) {
@@ -708,14 +867,28 @@ class LinkerManagerDialog extends ComfyDialog {
         const downloadBtn = this.contentElement?.querySelector(`#download-${missing.node_id}-${missing.widget_index}`);
 
         try {
-            // Disable button and show progress
+            // Disable button and show progress with cancel button immediately
             if (downloadBtn) {
                 downloadBtn.disabled = true;
                 downloadBtn.textContent = 'Starting...';
             }
             if (progressDiv) {
                 progressDiv.style.display = 'block';
-                progressDiv.innerHTML = '<span style="color: #2196F3;">Starting download...</span>';
+                // Show progress bar with cancel button immediately (like WMD)
+                progressDiv.innerHTML = `
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <div style="flex: 1; background: #333; border-radius: 4px; height: 8px; overflow: hidden;">
+                                <div style="width: 0%; background: #4CAF50; height: 100%; transition: width 0.3s;"></div>
+                            </div>
+                            <button class="cancel-download-btn-pending"
+                                style="padding: 4px 10px; background: #f44336; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 500;">
+                                Cancel
+                            </button>
+                        </div>
+                        <div style="font-size: 12px; color: #2196F3;">Connecting...</div>
+                    </div>
+                `;
             }
 
             // Start download
@@ -741,6 +914,13 @@ class LinkerManagerDialog extends ComfyDialog {
             // Track download and poll for progress
             const downloadId = data.download_id;
             this.activeDownloads[downloadId] = { missing, progressDiv, downloadBtn };
+            
+            // Attach cancel handler to pending button (before polling replaces it)
+            const pendingCancelBtn = progressDiv?.querySelector('.cancel-download-btn-pending');
+            if (pendingCancelBtn) {
+                pendingCancelBtn.addEventListener('click', () => this.cancelDownload(downloadId));
+            }
+            
             this.pollDownloadProgress(downloadId);
 
         } catch (error) {
@@ -772,22 +952,31 @@ class LinkerManagerDialog extends ComfyDialog {
             const progress = await response.json();
             const { progressDiv, downloadBtn, missing } = info;
 
-            if (progress.status === 'downloading') {
+            if (progress.status === 'downloading' || progress.status === 'starting') {
                 const percent = progress.progress || 0;
                 const downloaded = this.formatBytes(progress.downloaded || 0);
                 const total = this.formatBytes(progress.total_size || 0);
+                const speed = progress.speed ? this.formatBytes(progress.speed) + '/s' : '';
+                
+                // Format: "1.2 GB / 4.5 GB (27%) - 45.2 MB/s" (like WMD)
+                let progressText = `${downloaded} / ${total} (${percent}%)`;
+                if (speed) {
+                    progressText += ` - ${speed}`;
+                }
                 
                 if (progressDiv) {
                     progressDiv.innerHTML = `
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <div style="flex: 1; background: #333; border-radius: 4px; height: 8px; overflow: hidden;">
-                                <div style="width: ${percent}%; background: #4CAF50; height: 100%; transition: width 0.3s;"></div>
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <div style="flex: 1; background: #333; border-radius: 4px; height: 8px; overflow: hidden;">
+                                    <div style="width: ${percent}%; background: #4CAF50; height: 100%; transition: width 0.3s;"></div>
+                                </div>
+                                <button class="cancel-download-btn" data-download-id="${downloadId}"
+                                    style="padding: 4px 10px; background: #f44336; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 500;">
+                                    Cancel
+                                </button>
                             </div>
-                            <span style="font-size: 12px; color: #888;">${percent}% (${downloaded} / ${total})</span>
-                            <button class="cancel-download-btn" data-download-id="${downloadId}"
-                                style="padding: 2px 8px; background: #f44336; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px;">
-                                ✕
-                            </button>
+                            <div style="font-size: 12px; color: #aaa;">${progressText}</div>
                         </div>
                     `;
                     // Attach cancel handler
@@ -806,7 +995,7 @@ class LinkerManagerDialog extends ComfyDialog {
 
             } else if (progress.status === 'completed') {
                 if (progressDiv) {
-                    progressDiv.innerHTML = '<span style="color: #4CAF50;">✓ Download complete! Refresh to see the model.</span>';
+                    progressDiv.innerHTML = '<span style="color: #4CAF50;">✓ Download complete! Resolving...</span>';
                 }
                 if (downloadBtn) {
                     downloadBtn.textContent = '✓ Downloaded';
@@ -814,6 +1003,12 @@ class LinkerManagerDialog extends ComfyDialog {
                 }
                 delete this.activeDownloads[downloadId];
                 this.showNotification(`Downloaded: ${progress.filename}`, 'success');
+                
+                // Auto-resolve: Reload workflow data and try to resolve the downloaded model
+                // Small delay to ensure file system is updated
+                setTimeout(async () => {
+                    await this.autoResolveAfterDownload(missing, progress.filename);
+                }, 500);
 
             } else if (progress.status === 'error') {
                 if (progressDiv) {
@@ -827,21 +1022,36 @@ class LinkerManagerDialog extends ComfyDialog {
 
             } else if (progress.status === 'cancelled') {
                 if (progressDiv) {
-                    progressDiv.innerHTML = '<span style="color: orange;">Download cancelled</span>';
+                    progressDiv.innerHTML = '<span style="color: orange;">Download cancelled - incomplete file removed</span>';
                 }
                 if (downloadBtn) {
                     downloadBtn.disabled = false;
                     downloadBtn.textContent = 'Download';
+                    downloadBtn.style.background = '#4CAF50';  // Reset to green
                 }
                 delete this.activeDownloads[downloadId];
+                this.showNotification('Download cancelled', 'info');
 
             } else {
-                // Still starting, keep polling
+                // Unknown status, keep polling
                 setTimeout(() => this.pollDownloadProgress(downloadId), 500);
             }
 
         } catch (error) {
             console.error('Model Linker: Progress poll error:', error);
+            const info = this.activeDownloads[downloadId];
+            // Update UI to show error state instead of just disappearing
+            if (info) {
+                const { progressDiv, downloadBtn } = info;
+                if (progressDiv) {
+                    progressDiv.innerHTML = '<span style="color: #f44336;">Connection lost - download may have been cancelled</span>';
+                }
+                if (downloadBtn) {
+                    downloadBtn.disabled = false;
+                    downloadBtn.textContent = 'Retry';
+                    downloadBtn.style.background = '#4CAF50';
+                }
+            }
             delete this.activeDownloads[downloadId];
         }
     }
@@ -923,10 +1133,9 @@ class LinkerManagerDialog extends ComfyDialog {
         if (!container) return;
 
         const popular = data.popular;
-        const modelListResult = data.model_list;  // ComfyUI Manager database result
-        const hfResult = data.huggingface;
-        const civitaiResult = data.civitai;
-        const found = data.found || popular || modelListResult || hfResult || civitaiResult;
+        const hfResults = data.huggingface || [];
+        const civitaiResults = data.civitai || [];
+        const hasResults = popular || hfResults.length > 0 || civitaiResults.length > 0;
 
         if (!found) {
             container.innerHTML = '<span style="color: orange;">No match found online for this model.</span>';
@@ -975,11 +1184,12 @@ class LinkerManagerDialog extends ComfyDialog {
 
         // HuggingFace result
         if (hfResult && hfResult.url) {
+            const hfRepo = hfResult.repo_id || hfResult.repo || '';
             html += `<div style="margin-bottom: 8px; padding: 8px; background: rgba(33, 150, 243, 0.1); border-radius: 4px;">`;
             html += `<strong style="color: #2196F3;">✓ Found on HuggingFace:</strong>`;
             html += `<div style="margin-top: 4px; font-size: 12px;">`;
             html += `<code>${hfResult.filename}</code> `;
-            html += `<span style="color: #888;">(${hfResult.repo})</span>`;
+            html += `<span style="color: #888;">(${hfRepo})</span>`;
             html += `</div>`;
             html += `<div style="margin-top: 8px;">`;
             html += `<button class="search-download-btn" data-url="${hfResult.url}" data-filename="${hfResult.filename}" data-category="${missing.category}"
@@ -1033,7 +1243,21 @@ class LinkerManagerDialog extends ComfyDialog {
             
             if (progressDiv) {
                 progressDiv.style.display = 'block';
-                progressDiv.innerHTML = '<span style="color: #2196F3;">Starting download...</span>';
+                // Show progress bar with cancel button immediately (like WMD)
+                progressDiv.innerHTML = `
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <div style="flex: 1; background: #333; border-radius: 4px; height: 8px; overflow: hidden;">
+                                <div style="width: 0%; background: #4CAF50; height: 100%; transition: width 0.3s;"></div>
+                            </div>
+                            <button class="cancel-download-btn-pending"
+                                style="padding: 4px 10px; background: #f44336; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 500;">
+                                Cancel
+                            </button>
+                        </div>
+                        <div style="font-size: 12px; color: #2196F3;">Connecting...</div>
+                    </div>
+                `;
             }
 
             const response = await api.fetchApi('/model_linker/download', {
@@ -1054,6 +1278,13 @@ class LinkerManagerDialog extends ComfyDialog {
             // Track and poll
             const downloadId = data.download_id;
             this.activeDownloads[downloadId] = { missing, progressDiv, downloadBtn: btn };
+            
+            // Attach cancel handler to pending button (before polling replaces it)
+            const pendingCancelBtn = progressDiv?.querySelector('.cancel-download-btn-pending');
+            if (pendingCancelBtn) {
+                pendingCancelBtn.addEventListener('click', () => this.cancelDownload(downloadId));
+            }
+            
             this.pollDownloadProgress(downloadId);
 
         } catch (error) {
@@ -1076,6 +1307,39 @@ class LinkerManagerDialog extends ComfyDialog {
         const sizes = ['B', 'KB', 'MB', 'GB'];
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    /**
+     * Extract model card URL from a download URL
+     * HuggingFace: https://huggingface.co/Owner/Repo/resolve/main/file.safetensors -> https://huggingface.co/Owner/Repo
+     * CivitAI: https://civitai.com/api/download/models/123?type=Model -> https://civitai.com/models/123
+     */
+    getModelCardUrl(downloadUrl) {
+        if (!downloadUrl) return null;
+        
+        try {
+            // HuggingFace URLs
+            if (downloadUrl.includes('huggingface.co')) {
+                // Extract owner/repo from URL
+                const match = downloadUrl.match(/huggingface\.co\/([^\/]+\/[^\/]+)/);
+                if (match) {
+                    return `https://huggingface.co/${match[1]}`;
+                }
+            }
+            
+            // CivitAI URLs
+            if (downloadUrl.includes('civitai.com')) {
+                // Format: /api/download/models/123456 or /models/123456/...
+                const modelIdMatch = downloadUrl.match(/models\/(\d+)/);
+                if (modelIdMatch) {
+                    return `https://civitai.com/models/${modelIdMatch[1]}`;
+                }
+            }
+        } catch (e) {
+            console.error('Error parsing model card URL:', e);
+        }
+        
+        return null;
     }
 
     /**

@@ -104,7 +104,39 @@ class ModelLinkerExtension:
                             if not has_perfect_match:
                                 filename = missing.get('original_path', '').split('/')[-1].split('\\')[-1]
                                 
-                                # 1. Check popular models
+                                # 0. Check workflow URL first (highest priority - directly from workflow)
+                                workflow_url = missing.get('workflow_url', '')
+                                if workflow_url:
+                                    # Determine source from URL
+                                    if 'huggingface.co' in workflow_url:
+                                        source = 'huggingface'
+                                    elif 'civitai.com' in workflow_url:
+                                        source = 'civitai'
+                                    else:
+                                        source = 'workflow'
+                                    
+                                    # Try to get file size with HEAD request (non-blocking, timeout quickly)
+                                    file_size = None
+                                    try:
+                                        import requests
+                                        head_response = requests.head(workflow_url, allow_redirects=True, timeout=5)
+                                        if head_response.status_code == 200:
+                                            file_size = int(head_response.headers.get('content-length', 0))
+                                    except Exception:
+                                        pass  # Size unknown is fine
+                                    
+                                    missing['download_source'] = {
+                                        'source': source,
+                                        'url': workflow_url,
+                                        'filename': filename,
+                                        'directory': missing.get('workflow_directory', '') or missing.get('category', 'checkpoints'),
+                                        'match_type': 'exact',
+                                        'url_source': 'workflow',
+                                        'size': file_size
+                                    }
+                                    continue
+                                
+                                # 1. Check popular models (always exact match)
                                 popular_info = get_popular_model_url(filename)
                                 if popular_info:
                                     missing['download_source'] = {
@@ -112,12 +144,14 @@ class ModelLinkerExtension:
                                         'url': popular_info.get('url'),
                                         'filename': filename,
                                         'type': popular_info.get('type'),
-                                        'directory': popular_info.get('directory')
+                                        'directory': popular_info.get('directory'),
+                                        'match_type': 'exact'
                                     }
                                     continue
                                 
                                 # 2. Check model list (ComfyUI Manager database)
-                                model_list_result = search_model_list(filename)
+                                # Use exact_only=True to avoid confusing fuzzy matches for downloads
+                                model_list_result = search_model_list(filename, exact_only=True)
                                 if model_list_result:
                                     missing['download_source'] = {
                                         'source': 'model_list',
@@ -132,27 +166,29 @@ class ModelLinkerExtension:
                                     }
                                     continue
                                 
-                                # 3. Search HuggingFace
-                                hf_result = search_huggingface_for_file(filename)
+                                # 3. Search HuggingFace (exact_only=True for downloads)
+                                hf_result = search_huggingface_for_file(filename, exact_only=True)
                                 if hf_result:
                                     missing['download_source'] = {
                                         'source': 'huggingface',
                                         'url': hf_result.get('url'),
                                         'filename': hf_result.get('filename'),
                                         'name': hf_result.get('repo_id', ''),
-                                        'size': hf_result.get('size', '')
+                                        'size': hf_result.get('size', ''),
+                                        'match_type': hf_result.get('match_type', 'exact')
                                     }
                                     continue
                                 
-                                # 4. Search CivitAI
-                                civitai_result = search_civitai_for_file(filename)
+                                # 4. Search CivitAI (exact_only=True for downloads)
+                                civitai_result = search_civitai_for_file(filename, exact_only=True)
                                 if civitai_result:
                                     missing['download_source'] = {
                                         'source': 'civitai',
-                                        'url': civitai_result.get('url'),
+                                        'url': civitai_result.get('download_url'),  # CivitAI uses download_url
                                         'filename': civitai_result.get('filename'),
-                                        'name': civitai_result.get('model_name', ''),
-                                        'size': civitai_result.get('size', '')
+                                        'name': civitai_result.get('name', ''),
+                                        'size': civitai_result.get('size', ''),
+                                        'match_type': civitai_result.get('match_type', 'exact')
                                     }
                     
                     return web.json_response(result)

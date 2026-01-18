@@ -73,37 +73,40 @@ def clean_filename_for_search(filename: str) -> str:
 
 def search_huggingface_for_file(
     filename: str,
-    token: Optional[str] = None
+    token: Optional[str] = None,
+    exact_only: bool = False
 ) -> Optional[Dict[str, Any]]:
     """
     Search HuggingFace for a specific model file.
-    Returns the first repo that actually contains this exact file.
+    Returns the first repo that contains a matching file.
     
     Args:
-        filename: Exact filename to search for
+        filename: Filename to search for
         token: Optional HF token
+        exact_only: If True, only return exact filename matches (for downloads).
+                   If False, also try partial matching (for local file resolution).
         
     Returns:
         Dict with url, repo, filename if found, None otherwise
     """
     global _search_cache
     
-    cache_key = f"hf_{filename}"
+    cache_key = f"hf_{filename}_exact{exact_only}"
     if cache_key in _search_cache:
         return _search_cache[cache_key]
     
     try:
-        # Clean filename for search
-        search_term = clean_filename_for_search(filename)
+        # Use filename without extension for search
+        filename_base = os.path.splitext(filename)[0].lower()
         
         headers = {}
         if token:
             headers['Authorization'] = f'Bearer {token}'
         
         # Search for repos containing this filename
-        search_url = f"{HF_API_URL}/models?search={quote(search_term)}&limit=10"
+        search_url = f"{HF_API_URL}/models?search={quote(filename_base)}&limit=10"
         
-        response = requests.get(search_url, headers=headers, timeout=15)
+        response = requests.get(search_url, headers=headers, timeout=10)
         if response.status_code != 200:
             logger.debug(f"HuggingFace search returned {response.status_code}")
             return None
@@ -115,7 +118,7 @@ def search_huggingface_for_file(
             if not repo_id:
                 continue
             
-            # Check if this repo actually has the exact file
+            # Check if this repo actually has a matching file
             files_url = f"{HF_API_URL}/models/{repo_id}/tree/main"
             
             try:
@@ -125,19 +128,41 @@ def search_huggingface_for_file(
                     
                     for file_info in files:
                         file_path = file_info.get('path', '')
-                        # Check for exact filename match (case-insensitive)
-                        if file_path.lower().endswith(filename.lower()):
+                        file_base = os.path.splitext(os.path.basename(file_path))[0].lower()
+                        
+                        # Check for exact match first (always try this)
+                        if file_path.endswith(filename):
                             result = {
                                 'source': 'huggingface',
-                                'repo': repo_id,
+                                'repo_id': repo_id,
                                 'filename': os.path.basename(file_path),
                                 'path': file_path,
                                 'url': get_huggingface_download_url(repo_id, file_path),
-                                'size': file_info.get('size')
+                                'size': file_info.get('size'),
+                                'match_type': 'exact'
                             }
                             _search_cache[cache_key] = result
                             logger.info(f"Found {filename} on HuggingFace: {repo_id}")
                             return result
+                        
+                        # Check for partial match (filename_base in file_base or vice versa)
+                        # Skip partial matches if exact_only is True - prevents confusing
+                        # users with wrong model suggestions for downloads
+                        if not exact_only:
+                            if filename_base in file_base or file_base in filename_base:
+                                if file_path.endswith('.safetensors') or file_path.endswith('.ckpt'):
+                                    result = {
+                                        'source': 'huggingface',
+                                        'repo_id': repo_id,
+                                        'filename': os.path.basename(file_path),
+                                        'path': file_path,
+                                        'url': get_huggingface_download_url(repo_id, file_path),
+                                        'size': file_info.get('size'),
+                                        'match_type': 'partial'
+                                    }
+                                    _search_cache[cache_key] = result
+                                    logger.info(f"Found similar file for {filename} on HuggingFace: {repo_id}/{file_path}")
+                                    return result
                             
             except Exception as e:
                 logger.debug(f"Error checking repo {repo_id}: {e}")

@@ -5,13 +5,158 @@ Integrates all components to provide high-level API for model linking.
 """
 
 import os
+import re
+import json
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
+from urllib.parse import unquote
 
 from .scanner import get_model_files
 from .workflow_analyzer import analyze_workflow_models, identify_missing_models
 from .matcher import find_matches
 from .workflow_updater import update_workflow_nodes
+
+logger = logging.getLogger(__name__)
+
+# Regex patterns for URL extraction (matches HuggingFace and CivitAI URLs)
+URL_PATTERN = re.compile(r'(https?://(?:huggingface\.co|civitai\.com)[^\s"\'<>\)\\]+)')
+
+# Model file extensions to look for
+MODEL_EXTENSIONS = ('.safetensors', '.ckpt', '.pt', '.pth', '.bin', '.onnx')
+
+
+def extract_workflow_urls(workflow_json: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """
+    Extract model URLs from workflow JSON.
+    
+    Sources:
+    1. node.properties.models array - contains {name, url, directory}
+    2. Regex extraction from workflow JSON string - finds HuggingFace/CivitAI URLs
+    
+    Args:
+        workflow_json: Complete workflow JSON dictionary
+        
+    Returns:
+        Dict mapping model filename -> {url, directory, source}
+    """
+    url_map = {}
+    
+    # Convert to string for regex search
+    workflow_str = json.dumps(workflow_json)
+    
+    # Collect all nodes including from subgraphs
+    all_nodes = list(workflow_json.get('nodes', []))
+    definitions = workflow_json.get('definitions', {})
+    subgraphs = definitions.get('subgraphs', [])
+    for subgraph in subgraphs:
+        subgraph_nodes = subgraph.get('nodes', [])
+        all_nodes.extend(subgraph_nodes)
+    
+    # 1. Extract from node.properties.models (authoritative source)
+    for node in all_nodes:
+        node_type = node.get('type', '')
+        properties = node.get('properties', {})
+        models_list = properties.get('models', [])
+        
+        for model_info in models_list:
+            if isinstance(model_info, dict):
+                name = model_info.get('name', '')
+                url = model_info.get('url', '')
+                directory = model_info.get('directory', '')
+                
+                if name and name not in url_map:
+                    url_map[name] = {
+                        'url': url,
+                        'directory': directory,
+                        'node_type': node_type,
+                        'source': 'node_properties'
+                    }
+    
+    # 2. Extract URLs via regex from workflow JSON
+    urls_found = URL_PATTERN.findall(workflow_str)
+    
+    # Clean URLs (remove trailing characters that may have been captured)
+    cleaned_urls = []
+    for url in urls_found:
+        url = url.split(')')[0].replace('\\n', '').replace('\n', '').strip()
+        if url:
+            cleaned_urls.append(url)
+    
+    # 3. Extract model filenames via regex
+    model_pattern = re.compile(r'([\w\-\.%]+\.(?:safetensors|ckpt|pt|pth|bin|onnx))', re.IGNORECASE)
+    model_files_raw = model_pattern.findall(workflow_str)
+    
+    # Clean and decode filenames
+    model_files = set()
+    model_name_map = {}  # decoded -> original
+    
+    for model in model_files_raw:
+        cleaned = model.strip()
+        if cleaned and cleaned[0].isalnum():
+            try:
+                decoded = unquote(cleaned)
+            except Exception:
+                decoded = cleaned
+            model_files.add(decoded)
+            model_name_map[decoded] = cleaned
+    
+    # 4. Match URLs to model filenames
+    for model in model_files:
+        # Skip if already found in node.properties.models
+        if model in url_map and url_map[model].get('url'):
+            continue
+        
+        original_name = model_name_map.get(model, model)
+        
+        for url in cleaned_urls:
+            # Check decoded name in URL
+            if model in url:
+                if model not in url_map:
+                    url_map[model] = {'url': url, 'directory': '', 'source': 'regex'}
+                elif not url_map[model].get('url'):
+                    url_map[model]['url'] = url
+                    url_map[model]['source'] = 'regex'
+                break
+            # Check original (possibly URL-encoded) name in URL
+            if original_name in url:
+                if model not in url_map:
+                    url_map[model] = {'url': url, 'directory': '', 'source': 'regex'}
+                elif not url_map[model].get('url'):
+                    url_map[model]['url'] = url
+                    url_map[model]['source'] = 'regex'
+                break
+            # Check without extension
+            model_base = os.path.splitext(model)[0]
+            if model_base in url or unquote(model_base) in url:
+                if model not in url_map:
+                    url_map[model] = {'url': url, 'directory': '', 'source': 'regex'}
+                elif not url_map[model].get('url'):
+                    url_map[model]['url'] = url
+                    url_map[model]['source'] = 'regex'
+                break
+    
+    return url_map
+
+
+def parse_huggingface_url(url: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Extract HuggingFace repo and path from URL.
+    
+    Args:
+        url: HuggingFace URL
+        
+    Returns:
+        Tuple of (repo_id, file_path) or (None, None) if not valid
+    """
+    if not url or 'huggingface.co' not in url:
+        return None, None
+    
+    # Pattern: https://huggingface.co/user/repo/resolve/main/path/to/file.safetensors
+    match = re.match(r'https?://huggingface\.co/([^/]+/[^/]+)/(?:resolve|blob)/[^/]+/(.+)', url)
+    if match:
+        return match.group(1), match.group(2)
+    
+    return None, None
 
 
 def analyze_and_find_matches(
@@ -37,6 +182,8 @@ def analyze_and_find_matches(
                     'widget_index': widget index,
                     'original_path': original path from workflow,
                     'category': model category,
+                    'workflow_url': URL from workflow if found,
+                    'workflow_directory': directory from workflow if found,
                     'matches': [
                         {
                             'model': model dict from scanner,
@@ -53,6 +200,10 @@ def analyze_and_find_matches(
             'total_models_analyzed': count of all models in workflow
         }
     """
+    # Extract URLs from workflow (node.properties.models + regex)
+    workflow_urls = extract_workflow_urls(workflow_json)
+    logger.debug(f"Extracted {len(workflow_urls)} URLs from workflow")
+    
     # Analyze workflow to find all model references
     all_model_refs = analyze_workflow_models(workflow_json)
     
@@ -61,6 +212,17 @@ def analyze_and_find_matches(
     
     # Identify missing models
     missing_models = identify_missing_models(all_model_refs, available_models)
+    
+    # Enrich missing models with workflow URLs
+    for missing in missing_models:
+        original_path = missing.get('original_path', '')
+        filename = os.path.basename(original_path)
+        
+        if filename in workflow_urls:
+            url_info = workflow_urls[filename]
+            missing['workflow_url'] = url_info.get('url', '')
+            missing['workflow_directory'] = url_info.get('directory', '')
+            missing['url_source'] = url_info.get('source', '')
     
     # Find matches for each missing model
     missing_with_matches = []

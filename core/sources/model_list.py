@@ -55,13 +55,15 @@ def _similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, a, b).ratio()
 
 
-def search_model_list(filename: str) -> Optional[Dict[str, Any]]:
+def search_model_list(filename: str, exact_only: bool = False) -> Optional[Dict[str, Any]]:
     """
     Search model-list.json for a model by filename.
-    Uses exact match first, then fuzzy matching.
+    Uses exact match first, then fuzzy matching (unless exact_only=True).
     
     Args:
         filename: Model filename to search for
+        exact_only: If True, only return exact matches (for downloads).
+                   If False, also try fuzzy matching (for local file resolution).
         
     Returns:
         Dict with url, filename, type, etc. if found, None otherwise
@@ -74,7 +76,7 @@ def search_model_list(filename: str) -> Optional[Dict[str, Any]]:
     filename_base = os.path.splitext(filename_lower)[0]
     filename_norm = _normalize_filename(filename)
     
-    # 1. Exact match first
+    # 1. Exact match first (always try this)
     for model in models:
         model_filename = model.get('filename', '')
         if model_filename.lower() == filename_lower:
@@ -91,7 +93,38 @@ def search_model_list(filename: str) -> Optional[Dict[str, Any]]:
                     'match_type': 'exact'
                 }
     
+    # If exact_only is True, don't try fuzzy matching - prevents confusing
+    # users with wrong model suggestions for downloads
+    if exact_only:
+        return None
+    
     # 2. Fuzzy substring match - check if filename contains or is contained by model name
+    # WMD returns immediately on first substring match - do the same for reliability
+    for model in models:
+        model_filename = model.get('filename', '')
+        if not model_filename:
+            continue
+            
+        model_base = os.path.splitext(model_filename.lower())[0]
+        
+        # Check substring matches (exactly like WMD does)
+        if filename_base in model_base or model_base in filename_base:
+            url = model.get('url', '')
+            if url:
+                score = _similarity(filename_norm, _normalize_filename(model_filename))
+                return {
+                    'source': 'model_list',
+                    'filename': model_filename,
+                    'url': url,
+                    'name': model.get('name', ''),
+                    'type': model.get('type', ''),
+                    'directory': model.get('save_path', 'checkpoints'),
+                    'size': model.get('size', ''),
+                    'match_type': 'fuzzy',
+                    'confidence': round(score * 100, 1)
+                }
+    
+    # 3. Try normalized similarity matching on all models (fallback)
     best_match = None
     best_score = 0.0
     
@@ -100,43 +133,10 @@ def search_model_list(filename: str) -> Optional[Dict[str, Any]]:
         if not model_filename:
             continue
             
-        model_base = os.path.splitext(model_filename.lower())[0]
-        model_norm = _normalize_filename(model_filename)
-        
-        # Check substring matches (like WMD does)
-        if filename_base in model_base or model_base in filename_base:
-            url = model.get('url', '')
-            if url:
-                # Calculate similarity score
-                score = _similarity(filename_norm, model_norm)
-                if score > best_score:
-                    best_score = score
-                    best_match = {
-                        'source': 'model_list',
-                        'filename': model_filename,
-                        'url': url,
-                        'name': model.get('name', ''),
-                        'type': model.get('type', ''),
-                        'directory': model.get('save_path', 'checkpoints'),
-                        'size': model.get('size', ''),
-                        'match_type': 'fuzzy',
-                        'confidence': round(score * 100, 1)
-                    }
-    
-    # Return best fuzzy match if score is good enough (>50%)
-    if best_match and best_score > 0.5:
-        return best_match
-    
-    # 3. Try normalized similarity matching on all models
-    for model in models:
-        model_filename = model.get('filename', '')
-        if not model_filename:
-            continue
-            
         model_norm = _normalize_filename(model_filename)
         score = _similarity(filename_norm, model_norm)
         
-        if score > best_score and score > 0.6:  # Require 60% similarity
+        if score > best_score and score > 0.5:  # Require 50% similarity
             url = model.get('url', '')
             if url:
                 best_score = score

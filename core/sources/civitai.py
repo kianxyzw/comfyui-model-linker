@@ -66,7 +66,8 @@ def clean_filename_for_search(filename: str) -> str:
 
 def search_civitai_for_file(
     filename: str,
-    api_key: Optional[str] = None
+    api_key: Optional[str] = None,
+    exact_only: bool = False
 ) -> Optional[Dict[str, Any]]:
     """
     Search CivitAI for a specific model file.
@@ -75,13 +76,15 @@ def search_civitai_for_file(
     Args:
         filename: Exact filename to search for
         api_key: Optional API key
+        exact_only: If True, only return exact filename matches (for downloads).
+                   If False, also try partial matching (for local file resolution).
         
     Returns:
         Dict with download info if found, None otherwise
     """
     global _search_cache
     
-    cache_key = f"civit_{filename}"
+    cache_key = f"civit_{filename}_exact{exact_only}"
     if cache_key in _search_cache:
         return _search_cache[cache_key]
     
@@ -103,6 +106,8 @@ def search_civitai_for_file(
         data = response.json()
         items = data.get('items', [])
         
+        filename_base = os.path.splitext(filename.lower())[0]
+        
         for item in items:
             model_id = item.get('id')
             model_name = item.get('name', '')
@@ -115,7 +120,9 @@ def search_civitai_for_file(
                 
                 for file_info in files:
                     file_name = file_info.get('name', '')
-                    # Check for exact filename match (case-insensitive)
+                    file_base = os.path.splitext(file_name.lower())[0]
+                    
+                    # Check for exact filename match (case-insensitive) - always try this
                     if file_name.lower() == filename.lower():
                         download_url = file_info.get('downloadUrl', '')
                         if download_url:
@@ -128,11 +135,35 @@ def search_civitai_for_file(
                                 'filename': file_name,
                                 'url': f"https://civitai.com/models/{model_id}",
                                 'download_url': download_url,
-                                'size': file_info.get('sizeKB', 0) * 1024
+                                'size': file_info.get('sizeKB', 0) * 1024,
+                                'match_type': 'exact'
                             }
                             _search_cache[cache_key] = result
                             logger.info(f"Found {filename} on CivitAI: {model_name}")
                             return result
+                    
+                    # Check for partial match (filename_base in file_base or vice versa)
+                    # Skip partial matches if exact_only is True - prevents confusing
+                    # users with wrong model suggestions for downloads
+                    if not exact_only:
+                        if filename_base in file_base or file_base in filename_base:
+                            download_url = file_info.get('downloadUrl', '')
+                            if download_url:
+                                result = {
+                                    'source': 'civitai',
+                                    'model_id': model_id,
+                                    'version_id': version_id,
+                                    'name': model_name,
+                                    'type': model_type,
+                                    'filename': file_name,
+                                    'url': f"https://civitai.com/models/{model_id}",
+                                    'download_url': download_url,
+                                    'size': file_info.get('sizeKB', 0) * 1024,
+                                    'match_type': 'partial'
+                                }
+                                _search_cache[cache_key] = result
+                                logger.info(f"Found similar file for {filename} on CivitAI: {model_name}")
+                                return result
         
         # Not found
         _search_cache[cache_key] = None
