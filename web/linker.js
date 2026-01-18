@@ -686,7 +686,175 @@ class LinkerManagerDialog extends ComfyDialog {
 // Main extension class
 class ModelLinker {
     constructor() {
+        this.linkerButton = null;
+        this.buttonId = "model-linker-button";
         this.dialog = null;
+    }
+
+    setup = () => {
+        // Remove any existing button
+        this.removeExistingButton();
+
+        // Find a visible menu element
+        const allMenus = document.querySelectorAll("[class*='menu']");
+
+        // Try to find a visible menu
+        let visibleMenu = null;
+        for (const menu of allMenus) {
+            const style = window.getComputedStyle(menu);
+            if (style.display !== 'none' && style.visibility !== 'hidden') {
+                visibleMenu = menu;
+                break;
+            }
+        }
+
+        // Try alternative: app.menu.settingsGroup
+        if (!visibleMenu && app.menu?.settingsGroup?.element) {
+            visibleMenu = app.menu.settingsGroup.element.parentElement;
+        }
+
+        // Try alternative selectors for the top bar
+        if (!visibleMenu) {
+            const alternatives = [
+                'header',
+                '.header',
+                '.top-bar',
+                '.toolbar',
+                '.nav',
+                '.navigation',
+                '[role="toolbar"]',
+                '[role="menubar"]'
+            ];
+
+            for (const selector of alternatives) {
+                const element = document.querySelector(selector);
+                if (element) {
+                    const style = window.getComputedStyle(element);
+                    if (style.display !== 'none' && style.visibility !== 'hidden') {
+                        visibleMenu = element;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (visibleMenu) {
+            this.createLinkerButton(visibleMenu);
+        } else {
+            this.createFloatingButton();
+        }
+
+        // Create dialog instance (will be created on demand)
+        if (!this.dialog) {
+            this.dialog = new LinkerManagerDialog();
+        }
+    }
+
+    removeExistingButton() {
+        // Remove any existing button by ID
+        const existingButton = document.getElementById(this.buttonId);
+        if (existingButton) {
+            existingButton.remove();
+        }
+
+        // Also remove the stored reference if it exists
+        if (this.linkerButton && this.linkerButton.parentNode) {
+            this.linkerButton.remove();
+            this.linkerButton = null;
+        }
+    }
+
+    createLinkerButton(menu) {
+        this.linkerButton = $el("button", {
+            id: this.buttonId,
+            textContent: "🔗 Model Linker",
+            title: "Open Model Linker to resolve missing models in workflow",
+            onclick: () => {
+                this.openLinkerManager();
+            },
+            style: {
+                backgroundColor: "var(--comfy-input-bg, #353535)",
+                color: "var(--input-text, #ffffff)",
+                border: "2px solid var(--border-color, #555555)",
+                padding: "8px 16px",
+                margin: "4px",
+                borderRadius: "6px",
+                cursor: "pointer",
+                fontSize: "14px",
+                fontWeight: "600",
+                display: "inline-block",
+                minWidth: "80px",
+                textAlign: "center",
+                zIndex: "1000",
+                position: "relative",
+                transition: "all 0.2s ease",
+                whiteSpace: "nowrap"
+            }
+        });
+
+        // Add hover effects
+        this.linkerButton.addEventListener("mouseenter", () => {
+            this.linkerButton.style.backgroundColor = "var(--comfy-input-bg-hover, #4a4a4a)";
+            this.linkerButton.style.borderColor = "var(--primary-color, #007acc)";
+            this.linkerButton.style.transform = "translateY(-1px)";
+            this.linkerButton.style.boxShadow = "0 2px 4px rgba(0,0,0,0.2)";
+        });
+
+        this.linkerButton.addEventListener("mouseleave", () => {
+            this.linkerButton.style.backgroundColor = "var(--comfy-input-bg, #353535)";
+            this.linkerButton.style.borderColor = "var(--border-color, #555555)";
+            this.linkerButton.style.transform = "translateY(0)";
+            this.linkerButton.style.boxShadow = "none";
+        });
+
+        // Try to insert before settings group if using app.menu
+        if (app.menu?.settingsGroup?.element && menu === app.menu.settingsGroup.element.parentElement) {
+            app.menu.settingsGroup.element.before(this.linkerButton);
+        } else {
+            menu.appendChild(this.linkerButton);
+        }
+    }
+
+    createFloatingButton() {
+        // Create a floating button as fallback
+        this.linkerButton = $el("button", {
+            id: this.buttonId,
+            textContent: "🔗 Model Linker",
+            title: "Open Model Linker to resolve missing models in workflow",
+            onclick: () => {
+                this.openLinkerManager();
+            },
+            style: {
+                position: "fixed",
+                top: "10px",
+                right: "10px",
+                zIndex: "10000",
+                backgroundColor: "var(--comfy-input-bg, #353535)",
+                color: "var(--input-text, #ffffff)",
+                border: "2px solid var(--primary-color, #007acc)",
+                padding: "8px 16px",
+                borderRadius: "6px",
+                cursor: "pointer",
+                fontSize: "14px",
+                fontWeight: "600",
+                boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+                transition: "all 0.2s ease",
+                whiteSpace: "nowrap"
+            }
+        });
+
+        // Add hover effects
+        this.linkerButton.addEventListener("mouseenter", () => {
+            this.linkerButton.style.backgroundColor = "var(--primary-color, #007acc)";
+            this.linkerButton.style.transform = "scale(1.05)";
+        });
+
+        this.linkerButton.addEventListener("mouseleave", () => {
+            this.linkerButton.style.backgroundColor = "var(--comfy-input-bg, #353535)";
+            this.linkerButton.style.transform = "scale(1)";
+        });
+
+        document.body.appendChild(this.linkerButton);
     }
 
     openLinkerManager() {
@@ -707,31 +875,6 @@ const modelLinker = new ModelLinker();
 // Register the extension
 app.registerExtension({
     name: "Model Linker",
-    async setup() {
-        
-		let cmGroup = new (await import("../../scripts/ui/components/buttonGroup.js")).ComfyButtonGroup(
-            new(await import("../../scripts/ui/components/button.js")).ComfyButton({
-                id: "model-linker-button",
-                content: "Model Linker",
-                title: "Open Model Linker to resolve missing models in workflow",
-                action:  modelLinker.openLinkerManager,
-                classList: "comfyui-button comfyui-menu-mobile-collapse primary"
-            }).element,
-
-            new(await import("../../scripts/ui/components/button.js")).ComfyButton({
-                id: "model-linker-button-auto",
-                title: "Automatic resolve missing models in workflow",
-                action:  () => {
-                    if (!modelLinker.dialog) {
-                        modelLinker.dialog = new LinkerManagerDialog();
-                    }
-                    modelLinker.dialog.autoResolve100Percent()
-                },
-                classList: "pi pi-sparkles"
-            }).element
-        )
-        
-        app.menu?.settingsGroup.element.before(cmGroup.element);
-    }
+    setup: modelLinker.setup
 });
 
