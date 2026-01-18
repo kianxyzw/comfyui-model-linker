@@ -1,7 +1,19 @@
 [project]
 name = "comfyui-model-linker"
-version = "0.1.0"
-description = "A ComfyUI extension that helps users relink missing models in workflows"
+version = "1.1.0"
+description = "A ComfyUI extension that helps users relink missing models in workflows and download from HuggingFace/CivitAI"
 readme = "README.md"
+license = { file = "LICENSE" }
 requires-python = ">=3.8"
+dependencies = [
+    "requests>=2.28.0",
+    "aiohttp>=3.8.0",
+]
 
+[project.urls]
+Repository = "https://github.com/your-username/comfyui-model-linker"
+Documentation = "https://github.com/your-username/comfyui-model-linker#readme"
+
+[tool.comfy]
+PublisherId = "model-linker"
+DisplayName = "Model Linker"

@@ -15,6 +15,7 @@ class LinkerManagerDialog extends ComfyDialog {
         super();
         this.currentWorkflow = null;
         this.missingModels = [];
+        this.activeDownloads = {};  // Track active downloads
         
         // Create dialog element using $el
         this.element = $el("div.comfy-modal", {
@@ -268,6 +269,24 @@ class LinkerManagerDialog extends ComfyDialog {
                     });
                 }
             });
+            
+            // Attach download button listener
+            const downloadBtnId = `download-${missing.node_id}-${missing.widget_index}`;
+            const downloadBtn = container.querySelector(`#${downloadBtnId}`);
+            if (downloadBtn && missing.download_source) {
+                downloadBtn.addEventListener('click', () => {
+                    this.downloadModel(missing);
+                });
+            }
+            
+            // Attach search button listener
+            const searchBtnId = `search-${missing.node_id}-${missing.widget_index}`;
+            const searchBtn = container.querySelector(`#${searchBtnId}`);
+            if (searchBtn) {
+                searchBtn.addEventListener('click', () => {
+                    this.searchOnline(missing);
+                });
+            }
         });
     }
 
@@ -280,6 +299,10 @@ class LinkerManagerDialog extends ComfyDialog {
         // Filter out matches below 70% confidence threshold
         const filteredMatches = allMatches.filter(m => m.confidence >= 70);
         const hasMatches = filteredMatches.length > 0;
+        
+        // Calculate 100% matches upfront (needed for download section)
+        const perfectMatches = filteredMatches.filter(m => m.confidence === 100);
+        const otherMatches = filteredMatches.filter(m => m.confidence < 100 && m.confidence >= 70);
 
         let html = `<div style="border: 1px solid var(--border-color, #444); padding: 12px; border-radius: 4px;">`;
         
@@ -301,13 +324,6 @@ class LinkerManagerDialog extends ComfyDialog {
         html += `<div style="margin-bottom: 8px;"><strong>Category:</strong> ${missing.category || 'unknown'}</div>`;
 
         if (hasMatches) {
-            // Filter out matches below 70% confidence threshold
-            const filteredMatches = allMatches.filter(m => m.confidence >= 70);
-            
-            // Separate 100% matches from others (from filtered list)
-            const perfectMatches = filteredMatches.filter(m => m.confidence === 100);
-            const otherMatches = filteredMatches.filter(m => m.confidence < 100 && m.confidence >= 70);
-            
             // If we have 100% matches, only show those. Otherwise, show other matches sorted by confidence
             const matchesToShow = perfectMatches.length > 0 
                 ? perfectMatches 
@@ -347,9 +363,61 @@ class LinkerManagerDialog extends ComfyDialog {
             }
         } else if (allMatches.length > 0 && filteredMatches.length === 0) {
             // Had matches but all were below 70% threshold
-            html += `<div style="color: orange; margin-top: 8px;">No matches found above 70% confidence threshold.</div>`;
+            html += `<div style="color: orange; margin-top: 8px;">No local matches found above 70% confidence threshold.</div>`;
         } else {
-            html += `<div style="color: orange; margin-top: 8px;">No matches found.</div>`;
+            html += `<div style="color: orange; margin-top: 8px;">No local matches found.</div>`;
+        }
+
+        // Show download option when no 100% local match exists
+        const filename = missing.original_path?.split('/').pop()?.split('\\').pop() || '';
+        const downloadSource = missing.download_source;
+        
+        // Always show download/search when there's no perfect local match
+        if (perfectMatches.length === 0) {
+            html += `<div style="margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border-color, #444);">`;
+            
+            if (downloadSource && downloadSource.url) {
+                // We have a known download URL - show Download button
+                const isExact = downloadSource.match_type === 'exact' || downloadSource.source === 'popular' || downloadSource.source === 'huggingface' || downloadSource.source === 'civitai';
+                const confidence = downloadSource.confidence ? ` (${downloadSource.confidence}% match)` : '';
+                const sourceLabels = {
+                    'popular': 'Popular Models',
+                    'model_list': 'Model Database',
+                    'huggingface': 'HuggingFace',
+                    'civitai': 'CivitAI'
+                };
+                const sourceLabel = sourceLabels[downloadSource.source] || 'Online';
+                const downloadFilename = downloadSource.filename || filename;
+                const modelName = downloadSource.name ? ` (${downloadSource.name})` : '';
+                const size = downloadSource.size ? ` [${downloadSource.size}]` : '';
+                
+                html += `<div style="display: flex; align-items: flex-start; gap: 12px;">`;
+                html += `<button id="download-${missing.node_id}-${missing.widget_index}" 
+                    class="model-linker-download-btn" 
+                    style="padding: 8px 16px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 500;">
+                    Download
+                </button>`;
+                html += `<div style="flex: 1; font-size: 12px;">`;
+                html += `<div style="color: ${isExact ? '#4CAF50' : '#9C27B0'};">`;
+                html += isExact ? `✓ Found on ${sourceLabel}` : `~ Similar model found${confidence}`;
+                html += `</div>`;
+                html += `<div style="color: #888; margin-top: 2px;">`;
+                html += `<code>${downloadFilename}</code>${modelName}${size}`;
+                html += `</div>`;
+                html += `</div>`;
+                html += `</div>`;
+            } else {
+                // No known download - offer search
+                html += `<button id="search-${missing.node_id}-${missing.widget_index}" 
+                    class="model-linker-search-btn" 
+                    style="padding: 6px 12px; background: #2196F3; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                    🔍 Search Online
+                </button>`;
+                html += `<div id="search-results-${missing.node_id}-${missing.widget_index}" style="margin-top: 8px; display: none;"></div>`;
+            }
+            
+            html += `<div id="download-progress-${missing.node_id}-${missing.widget_index}" style="margin-top: 8px; display: none;"></div>`;
+            html += `</div>`;
         }
 
         html += '</div>';
@@ -619,6 +687,395 @@ class LinkerManagerDialog extends ComfyDialog {
             console.error('Model Linker: Error auto-resolving:', error);
             this.showNotification('Error auto-resolving: ' + error.message, 'error');
         }
+    }
+
+    /**
+     * Download a model from a known source
+     */
+    async downloadModel(missing) {
+        const source = missing.download_source;
+        if (!source || !source.url) {
+            this.showNotification('No download URL available', 'error');
+            return;
+        }
+
+        // Use filename from download source if available (may be different from original)
+        const originalFilename = missing.original_path?.split('/').pop()?.split('\\').pop() || 'model.safetensors';
+        const filename = source.filename || originalFilename;
+        const category = source.directory || missing.category || 'checkpoints';
+        const progressId = `download-progress-${missing.node_id}-${missing.widget_index}`;
+        const progressDiv = this.contentElement?.querySelector(`#${progressId}`);
+        const downloadBtn = this.contentElement?.querySelector(`#download-${missing.node_id}-${missing.widget_index}`);
+
+        try {
+            // Disable button and show progress
+            if (downloadBtn) {
+                downloadBtn.disabled = true;
+                downloadBtn.textContent = 'Starting...';
+            }
+            if (progressDiv) {
+                progressDiv.style.display = 'block';
+                progressDiv.innerHTML = '<span style="color: #2196F3;">Starting download...</span>';
+            }
+
+            // Start download
+            const response = await api.fetchApi('/model_linker/download', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    url: source.url,
+                    filename: filename,
+                    category: category
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`Download failed: ${response.status}`);
+            }
+
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.error || 'Download failed');
+            }
+
+            // Track download and poll for progress
+            const downloadId = data.download_id;
+            this.activeDownloads[downloadId] = { missing, progressDiv, downloadBtn };
+            this.pollDownloadProgress(downloadId);
+
+        } catch (error) {
+            console.error('Model Linker: Download error:', error);
+            if (progressDiv) {
+                progressDiv.innerHTML = `<span style="color: #f44336;">Error: ${error.message}</span>`;
+            }
+            if (downloadBtn) {
+                downloadBtn.disabled = false;
+                downloadBtn.textContent = 'Retry Download';
+            }
+            this.showNotification('Download failed: ' + error.message, 'error');
+        }
+    }
+
+    /**
+     * Poll download progress
+     */
+    async pollDownloadProgress(downloadId) {
+        const info = this.activeDownloads[downloadId];
+        if (!info) return;
+
+        try {
+            const response = await api.fetchApi(`/model_linker/progress/${downloadId}`);
+            if (!response.ok) {
+                throw new Error('Failed to get progress');
+            }
+
+            const progress = await response.json();
+            const { progressDiv, downloadBtn, missing } = info;
+
+            if (progress.status === 'downloading') {
+                const percent = progress.progress || 0;
+                const downloaded = this.formatBytes(progress.downloaded || 0);
+                const total = this.formatBytes(progress.total_size || 0);
+                
+                if (progressDiv) {
+                    progressDiv.innerHTML = `
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <div style="flex: 1; background: #333; border-radius: 4px; height: 8px; overflow: hidden;">
+                                <div style="width: ${percent}%; background: #4CAF50; height: 100%; transition: width 0.3s;"></div>
+                            </div>
+                            <span style="font-size: 12px; color: #888;">${percent}% (${downloaded} / ${total})</span>
+                            <button class="cancel-download-btn" data-download-id="${downloadId}"
+                                style="padding: 2px 8px; background: #f44336; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px;">
+                                ✕
+                            </button>
+                        </div>
+                    `;
+                    // Attach cancel handler
+                    const cancelBtn = progressDiv.querySelector('.cancel-download-btn');
+                    if (cancelBtn && !cancelBtn._hasListener) {
+                        cancelBtn._hasListener = true;
+                        cancelBtn.addEventListener('click', () => this.cancelDownload(downloadId));
+                    }
+                }
+                if (downloadBtn) {
+                    downloadBtn.textContent = `${percent}%`;
+                }
+
+                // Continue polling
+                setTimeout(() => this.pollDownloadProgress(downloadId), 1000);
+
+            } else if (progress.status === 'completed') {
+                if (progressDiv) {
+                    progressDiv.innerHTML = '<span style="color: #4CAF50;">✓ Download complete! Refresh to see the model.</span>';
+                }
+                if (downloadBtn) {
+                    downloadBtn.textContent = '✓ Downloaded';
+                    downloadBtn.style.background = '#4CAF50';
+                }
+                delete this.activeDownloads[downloadId];
+                this.showNotification(`Downloaded: ${progress.filename}`, 'success');
+
+            } else if (progress.status === 'error') {
+                if (progressDiv) {
+                    progressDiv.innerHTML = `<span style="color: #f44336;">Error: ${progress.error || 'Unknown error'}</span>`;
+                }
+                if (downloadBtn) {
+                    downloadBtn.disabled = false;
+                    downloadBtn.textContent = 'Retry';
+                }
+                delete this.activeDownloads[downloadId];
+
+            } else if (progress.status === 'cancelled') {
+                if (progressDiv) {
+                    progressDiv.innerHTML = '<span style="color: orange;">Download cancelled</span>';
+                }
+                if (downloadBtn) {
+                    downloadBtn.disabled = false;
+                    downloadBtn.textContent = 'Download';
+                }
+                delete this.activeDownloads[downloadId];
+
+            } else {
+                // Still starting, keep polling
+                setTimeout(() => this.pollDownloadProgress(downloadId), 500);
+            }
+
+        } catch (error) {
+            console.error('Model Linker: Progress poll error:', error);
+            delete this.activeDownloads[downloadId];
+        }
+    }
+
+    /**
+     * Cancel an active download
+     */
+    async cancelDownload(downloadId) {
+        try {
+            const response = await api.fetchApi(`/model_linker/cancel/${downloadId}`, {
+                method: 'POST'
+            });
+            
+            if (!response.ok) {
+                throw new Error('Failed to cancel download');
+            }
+            
+            const info = this.activeDownloads[downloadId];
+            if (info?.progressDiv) {
+                info.progressDiv.innerHTML = '<span style="color: orange;">Cancelling...</span>';
+            }
+            
+        } catch (error) {
+            console.error('Model Linker: Cancel error:', error);
+            this.showNotification('Failed to cancel download', 'error');
+        }
+    }
+
+    /**
+     * Search online for a model
+     */
+    async searchOnline(missing) {
+        const filename = missing.original_path?.split('/').pop()?.split('\\').pop() || '';
+        const category = missing.category || '';
+        const resultsId = `search-results-${missing.node_id}-${missing.widget_index}`;
+        const resultsDiv = this.contentElement?.querySelector(`#${resultsId}`);
+        const searchBtn = this.contentElement?.querySelector(`#search-${missing.node_id}-${missing.widget_index}`);
+
+        try {
+            if (searchBtn) {
+                searchBtn.disabled = true;
+                searchBtn.textContent = '🔍 Searching...';
+            }
+            if (resultsDiv) {
+                resultsDiv.style.display = 'block';
+                resultsDiv.innerHTML = '<span style="color: #2196F3;">Searching HuggingFace and CivitAI...</span>';
+            }
+
+            const response = await api.fetchApi('/model_linker/search', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filename, category })
+            });
+
+            if (!response.ok) {
+                throw new Error(`Search failed: ${response.status}`);
+            }
+
+            const data = await response.json();
+            this.displaySearchResults(missing, data, resultsDiv);
+
+        } catch (error) {
+            console.error('Model Linker: Search error:', error);
+            if (resultsDiv) {
+                resultsDiv.innerHTML = `<span style="color: #f44336;">Search failed: ${error.message}</span>`;
+            }
+        } finally {
+            if (searchBtn) {
+                searchBtn.disabled = false;
+                searchBtn.textContent = '🔍 Search Again';
+            }
+        }
+    }
+
+    /**
+     * Display search results
+     */
+    displaySearchResults(missing, data, container) {
+        if (!container) return;
+
+        const popular = data.popular;
+        const modelListResult = data.model_list;  // ComfyUI Manager database result
+        const hfResult = data.huggingface;
+        const civitaiResult = data.civitai;
+        const found = data.found || popular || modelListResult || hfResult || civitaiResult;
+
+        if (!found) {
+            container.innerHTML = '<span style="color: orange;">No match found online for this model.</span>';
+            return;
+        }
+
+        let html = '<div style="margin-top: 8px;">';
+
+        // Popular models result (highest priority)
+        if (popular) {
+            html += `<div style="margin-bottom: 8px; padding: 8px; background: rgba(76, 175, 80, 0.1); border-radius: 4px;">`;
+            html += `<strong style="color: #4CAF50;">✓ Found in Popular Models:</strong>`;
+            html += `<div style="margin-top: 4px;">`;
+            html += `<button class="search-download-btn" data-url="${popular.url}" data-filename="${popular.filename || missing.original_path?.split('/').pop()?.split('\\').pop()}" data-category="${popular.directory || missing.category}" 
+                style="padding: 4px 8px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">
+                Download
+            </button>`;
+            html += `</div></div>`;
+        }
+
+        // Model list result (ComfyUI Manager database with fuzzy matching)
+        if (modelListResult && modelListResult.url) {
+            const confidence = modelListResult.confidence ? ` (${modelListResult.confidence}% match)` : '';
+            const matchType = modelListResult.match_type === 'exact' ? '✓ Exact match' : '~ Similar model';
+            const bgColor = modelListResult.match_type === 'exact' ? 'rgba(76, 175, 80, 0.1)' : 'rgba(156, 39, 176, 0.1)';
+            const textColor = modelListResult.match_type === 'exact' ? '#4CAF50' : '#9C27B0';
+            
+            html += `<div style="margin-bottom: 8px; padding: 8px; background: ${bgColor}; border-radius: 4px;">`;
+            html += `<strong style="color: ${textColor};">${matchType} in Model Database${confidence}:</strong>`;
+            html += `<div style="margin-top: 4px; font-size: 12px;">`;
+            html += `<code>${modelListResult.filename}</code>`;
+            if (modelListResult.name) {
+                html += ` <span style="color: #888;">(${modelListResult.name})</span>`;
+            }
+            if (modelListResult.size) {
+                html += ` <span style="color: #666; font-size: 11px;">[${modelListResult.size}]</span>`;
+            }
+            html += `</div>`;
+            html += `<div style="margin-top: 8px;">`;
+            html += `<button class="search-download-btn" data-url="${modelListResult.url}" data-filename="${modelListResult.filename}" data-category="${modelListResult.directory || missing.category}"
+                style="padding: 4px 8px; background: ${textColor}; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">
+                Download
+            </button>`;
+            html += `</div></div>`;
+        }
+
+        // HuggingFace result
+        if (hfResult && hfResult.url) {
+            html += `<div style="margin-bottom: 8px; padding: 8px; background: rgba(33, 150, 243, 0.1); border-radius: 4px;">`;
+            html += `<strong style="color: #2196F3;">✓ Found on HuggingFace:</strong>`;
+            html += `<div style="margin-top: 4px; font-size: 12px;">`;
+            html += `<code>${hfResult.filename}</code> `;
+            html += `<span style="color: #888;">(${hfResult.repo})</span>`;
+            html += `</div>`;
+            html += `<div style="margin-top: 8px;">`;
+            html += `<button class="search-download-btn" data-url="${hfResult.url}" data-filename="${hfResult.filename}" data-category="${missing.category}"
+                style="padding: 4px 8px; background: #2196F3; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">
+                Download
+            </button>`;
+            html += `</div></div>`;
+        }
+
+        // CivitAI result
+        if (civitaiResult && civitaiResult.download_url) {
+            html += `<div style="margin-bottom: 8px; padding: 8px; background: rgba(255, 152, 0, 0.1); border-radius: 4px;">`;
+            html += `<strong style="color: #FF9800;">✓ Found on CivitAI:</strong>`;
+            html += `<div style="margin-top: 4px; font-size: 12px;">`;
+            html += `<code>${civitaiResult.filename || civitaiResult.name}</code> `;
+            html += `<span style="color: #888;">(${civitaiResult.type || civitaiResult.name})</span>`;
+            html += `</div>`;
+            html += `<div style="margin-top: 8px;">`;
+            html += `<button class="search-download-btn" data-url="${civitaiResult.download_url}" data-filename="${civitaiResult.filename || civitaiResult.name + '.safetensors'}" data-category="${missing.category}"
+                style="padding: 4px 8px; background: #FF9800; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">
+                Download
+            </button>`;
+            html += `</div></div>`;
+        }
+
+        html += '</div>';
+        container.innerHTML = html;
+
+        // Attach download listeners
+        const downloadBtns = container.querySelectorAll('.search-download-btn');
+        downloadBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const url = btn.dataset.url;
+                const filename = btn.dataset.filename;
+                const category = btn.dataset.category;
+                this.downloadFromSearch(missing, url, filename, category, btn);
+            });
+        });
+    }
+
+    /**
+     * Download from search results
+     */
+    async downloadFromSearch(missing, url, filename, category, btn) {
+        const progressId = `download-progress-${missing.node_id}-${missing.widget_index}`;
+        const progressDiv = this.contentElement?.querySelector(`#${progressId}`);
+
+        try {
+            btn.disabled = true;
+            btn.textContent = 'Starting...';
+            
+            if (progressDiv) {
+                progressDiv.style.display = 'block';
+                progressDiv.innerHTML = '<span style="color: #2196F3;">Starting download...</span>';
+            }
+
+            const response = await api.fetchApi('/model_linker/download', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url, filename, category })
+            });
+
+            if (!response.ok) {
+                throw new Error(`Download failed: ${response.status}`);
+            }
+
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.error || 'Download failed');
+            }
+
+            // Track and poll
+            const downloadId = data.download_id;
+            this.activeDownloads[downloadId] = { missing, progressDiv, downloadBtn: btn };
+            this.pollDownloadProgress(downloadId);
+
+        } catch (error) {
+            console.error('Model Linker: Download error:', error);
+            if (progressDiv) {
+                progressDiv.innerHTML = `<span style="color: #f44336;">Error: ${error.message}</span>`;
+            }
+            btn.disabled = false;
+            btn.textContent = 'Retry';
+            this.showNotification('Download failed: ' + error.message, 'error');
+        }
+    }
+
+    /**
+     * Format bytes to human readable string
+     */
+    formatBytes(bytes) {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
     }
 
     /**

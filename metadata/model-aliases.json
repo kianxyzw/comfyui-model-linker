@@ -1,0 +1,83 @@
+{
+  "version": "1.0",
+  "description": "Model filename aliases for fuzzy matching. Canonical names map to variant aliases.",
+  "aliases": {
+    "sd_xl_base_1.0.safetensors": [
+      "sdxl_base.safetensors",
+      "sdxl-base-1.0.safetensors",
+      "sd-xl-base.safetensors",
+      "sdxl_1.0_base.safetensors"
+    ],
+    "sd_xl_refiner_1.0.safetensors": [
+      "sdxl_refiner.safetensors",
+      "sdxl-refiner-1.0.safetensors",
+      "sd-xl-refiner.safetensors"
+    ],
+    "flux1-dev.safetensors": [
+      "flux-dev.safetensors",
+      "FLUX.1-dev.safetensors",
+      "flux1_dev.safetensors",
+      "flux-1-dev.safetensors"
+    ],
+    "flux1-schnell.safetensors": [
+      "flux-schnell.safetensors",
+      "FLUX.1-schnell.safetensors",
+      "flux1_schnell.safetensors",
+      "flux-1-schnell.safetensors"
+    ],
+    "v1-5-pruned-emaonly.safetensors": [
+      "sd15.safetensors",
+      "sd-1-5.safetensors",
+      "stable-diffusion-1-5.safetensors",
+      "v1-5-pruned.safetensors",
+      "sd_v1.5.safetensors"
+    ],
+    "v2-1_768-ema-pruned.safetensors": [
+      "sd21.safetensors",
+      "sd-2-1.safetensors",
+      "stable-diffusion-2-1.safetensors",
+      "v2-1.safetensors"
+    ],
+    "sd3_medium.safetensors": [
+      "sd3-medium.safetensors",
+      "sd3.safetensors",
+      "stable-diffusion-3-medium.safetensors"
+    ],
+    "RealESRGAN_x4plus.pth": [
+      "realesrgan_x4plus.pth",
+      "real-esrgan-x4.pth",
+      "4x_realesrgan.pth"
+    ],
+    "t5xxl_fp16.safetensors": [
+      "t5-xxl-fp16.safetensors",
+      "t5xxl.safetensors",
+      "t5_xxl_fp16.safetensors"
+    ],
+    "t5xxl_fp8_e4m3fn.safetensors": [
+      "t5-xxl-fp8.safetensors",
+      "t5xxl_fp8.safetensors",
+      "t5_xxl_fp8.safetensors"
+    ],
+    "clip_l.safetensors": [
+      "clip-l.safetensors",
+      "clip_large.safetensors",
+      "openai-clip-l.safetensors"
+    ],
+    "ae.safetensors": [
+      "flux_ae.safetensors",
+      "flux-ae.safetensors",
+      "flux_vae.safetensors"
+    ]
+  },
+  "patterns": {
+    "fp16_variants": {
+      "description": "FP16/FP32 variants of the same model",
+      "pattern": "(.+?)[-_]?(fp16|fp32|fp8)?\\.safetensors$",
+      "note": "Models with fp16/fp32/fp8 suffix are often interchangeable"
+    },
+    "quantized_variants": {
+      "description": "Quantized variants (Q4, Q8, GGUF)",
+      "pattern": "(.+?)[-_]?(q4|q8|gguf)?\\.safetensors$"
+    }
+  }
+}
