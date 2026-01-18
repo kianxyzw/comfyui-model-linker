@@ -130,6 +130,20 @@ class LinkerManagerDialog extends ComfyDialog {
     }
     
     createFooter() {
+        // Store reference to download all button so we can update its text
+        this.downloadAllButton = $el("button", {
+            textContent: "Download All Missing",
+            onclick: () => this.handleDownloadAllClick(),
+            className: "comfy-button",
+            style: {
+                padding: "8px 16px",
+                background: "#4CAF50",
+                color: "white",
+                border: "none",
+                borderRadius: "4px"
+            }
+        });
+        
         return $el("div", {
             style: {
                 padding: "16px",
@@ -139,6 +153,7 @@ class LinkerManagerDialog extends ComfyDialog {
                 gap: "8px"
             }
         }, [
+            this.downloadAllButton,
             $el("button", {
                 textContent: "Auto-Resolve 100% Matches",
                 onclick: () => this.autoResolve100Percent(),
@@ -150,9 +165,62 @@ class LinkerManagerDialog extends ComfyDialog {
         ]);
     }
     
+    /**
+     * Handle click on Download All / Cancel All button
+     */
+    handleDownloadAllClick() {
+        if (Object.keys(this.activeDownloads).length > 0) {
+            // Cancel all active downloads
+            this.cancelAllDownloads();
+        } else {
+            // Start downloading all missing
+            this.downloadAllMissing();
+        }
+    }
+    
+    /**
+     * Cancel all active downloads
+     */
+    async cancelAllDownloads() {
+        const downloadIds = Object.keys(this.activeDownloads);
+        if (downloadIds.length === 0) return;
+        
+        this.showNotification(`Cancelling ${downloadIds.length} download${downloadIds.length > 1 ? 's' : ''}...`, 'info');
+        
+        for (const downloadId of downloadIds) {
+            try {
+                await api.fetchApi(`/model_linker/cancel/${downloadId}`, {
+                    method: 'POST'
+                });
+            } catch (error) {
+                console.error('Model Linker: Error cancelling download:', error);
+            }
+        }
+    }
+    
+    /**
+     * Update the Download All button state based on active downloads
+     */
+    updateDownloadAllButtonState() {
+        if (!this.downloadAllButton) return;
+        
+        const activeCount = Object.keys(this.activeDownloads).length;
+        if (activeCount > 0) {
+            this.downloadAllButton.textContent = `Cancel All (${activeCount})`;
+            this.downloadAllButton.style.background = "#f44336";  // Red for cancel
+        } else {
+            this.downloadAllButton.textContent = "Download All Missing";
+            this.downloadAllButton.style.background = "#4CAF50";  // Green for download
+        }
+    }
+    
     async show() {
         this.backdrop.style.display = "block";
         this.element.style.display = "flex";
+        
+        // Update button state in case there are active downloads
+        this.updateDownloadAllButtonState();
+        
         await this.loadWorkflowData();
     }
     
@@ -194,6 +262,9 @@ class LinkerManagerDialog extends ComfyDialog {
 
             const data = await response.json();
             this.displayMissingModels(this.contentElement, data);
+            
+            // Reconnect any active downloads to their new progress divs
+            this.reconnectActiveDownloads();
 
         } catch (error) {
             console.error('Model Linker: Error loading workflow data:', error);
@@ -221,14 +292,84 @@ class LinkerManagerDialog extends ComfyDialog {
     }
 
     /**
+     * Reconnect active downloads to their new progress div elements after UI refresh
+     */
+    reconnectActiveDownloads() {
+        if (!this.contentElement) return;
+        
+        for (const [downloadId, info] of Object.entries(this.activeDownloads)) {
+            const { missing } = info;
+            if (!missing) continue;
+            
+            // Find the new progress div by ID
+            const progressId = `download-progress-${missing.node_id}-${missing.widget_index}`;
+            const newProgressDiv = this.contentElement.querySelector(`#${progressId}`);
+            const newDownloadBtn = this.contentElement.querySelector(`#download-${missing.node_id}-${missing.widget_index}`);
+            
+            if (newProgressDiv) {
+                // Update the reference
+                info.progressDiv = newProgressDiv;
+                info.downloadBtn = newDownloadBtn;
+                
+                // Show that download is in progress
+                newProgressDiv.style.display = 'block';
+                newProgressDiv.innerHTML = `
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <div style="flex: 1; background: #333; border-radius: 4px; height: 8px; overflow: hidden;">
+                                <div style="width: 0%; background: #4CAF50; height: 100%; transition: width 0.3s;"></div>
+                            </div>
+                            <button class="cancel-download-btn" data-download-id="${downloadId}"
+                                style="padding: 4px 10px; background: #f44336; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 500;">
+                                Cancel
+                            </button>
+                        </div>
+                        <div style="font-size: 12px; color: #2196F3;">Downloading...</div>
+                    </div>
+                `;
+                
+                // Attach cancel handler
+                const cancelBtn = newProgressDiv.querySelector('.cancel-download-btn');
+                if (cancelBtn) {
+                    cancelBtn.addEventListener('click', () => this.cancelDownload(downloadId));
+                }
+                
+                // Update download button if exists
+                if (newDownloadBtn) {
+                    newDownloadBtn.disabled = true;
+                    newDownloadBtn.textContent = 'Downloading...';
+                }
+            }
+        }
+    }
+    
+    /**
      * Display missing models in the dialog
      */
     displayMissingModels(container, data) {
         const missingModels = data.missing_models || [];
         const totalMissing = data.total_missing || 0;
+        
+        // Check if there are active downloads
+        const activeCount = Object.keys(this.activeDownloads).length;
 
-        if (totalMissing === 0) {
+        if (totalMissing === 0 && activeCount === 0) {
             container.innerHTML = '<p style="color: green;">✓ No missing models found. All models are available!</p>';
+            return;
+        }
+        
+        // If no missing models but downloads are active, show a waiting message
+        if (totalMissing === 0 && activeCount > 0) {
+            container.innerHTML = `
+                <div style="padding: 16px; background: rgba(33, 150, 243, 0.1); border-radius: 8px; margin-bottom: 16px;">
+                    <p style="color: #2196F3; margin: 0;">
+                        <strong>ℹ ${activeCount} download${activeCount > 1 ? 's' : ''} in progress...</strong>
+                    </p>
+                    <p style="color: #888; margin: 8px 0 0 0; font-size: 13px;">
+                        Models will be automatically linked when downloads complete.
+                    </p>
+                </div>
+            `;
             return;
         }
 
@@ -488,6 +629,35 @@ class LinkerManagerDialog extends ComfyDialog {
      * Show a notification banner (similar to ComfyUI's "Reconnecting" banner)
      */
     showNotification(message, type = 'success') {
+        // Build children array, filtering out nulls
+        const children = [];
+        
+        if (type === 'success') {
+            children.push($el("span", {
+                textContent: "✓",
+                style: {
+                    fontSize: "18px",
+                    fontWeight: "bold"
+                }
+            }));
+        } else if (type === 'error') {
+            children.push($el("span", {
+                textContent: "×",
+                style: {
+                    fontSize: "18px",
+                    fontWeight: "bold"
+                }
+            }));
+        } else if (type === 'info') {
+            children.push($el("span", {
+                textContent: "ℹ",
+                style: {
+                    fontSize: "18px",
+                    fontWeight: "bold"
+                }
+            }));
+        }
+        
         // Create notification banner
         const notification = $el("div", {
             style: {
@@ -512,19 +682,7 @@ class LinkerManagerDialog extends ComfyDialog {
                 animation: "slideDown 0.3s ease"
             }
         }, [
-            type === 'success' ? $el("span", {
-                textContent: "✓",
-                style: {
-                    fontSize: "18px",
-                    fontWeight: "bold"
-                }
-            }) : type === 'error' ? $el("span", {
-                textContent: "×",
-                style: {
-                    fontSize: "18px",
-                    fontWeight: "bold"
-                }
-            }) : null,
+            ...children,
             $el("span", {
                 textContent: message
             }),
@@ -754,6 +912,70 @@ class LinkerManagerDialog extends ComfyDialog {
     }
 
     /**
+     * Download all missing models that have download sources but no 100% local match
+     */
+    async downloadAllMissing() {
+        if (!this.contentElement) return;
+
+        try {
+            const workflow = this.getCurrentWorkflow();
+            if (!workflow) {
+                this.showNotification('No workflow loaded', 'error');
+                return;
+            }
+
+            // Analyze workflow first
+            const analyzeResponse = await api.fetchApi('/model_linker/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ workflow })
+            });
+
+            if (!analyzeResponse.ok) {
+                throw new Error(`API error: ${analyzeResponse.status}`);
+            }
+
+            const analyzeData = await analyzeResponse.json();
+            const missingModels = analyzeData.missing_models || [];
+
+            // Collect models that need downloading:
+            // - Have a download_source with valid URL
+            // - Do NOT have any 100% confidence local matches
+            const toDownload = [];
+            for (const missing of missingModels) {
+                const perfectMatches = (missing.matches || []).filter(m => m.confidence === 100);
+                
+                // Skip if has 100% local match or no download source
+                if (perfectMatches.length > 0 || !missing.download_source?.url) {
+                    continue;
+                }
+                
+                toDownload.push(missing);
+            }
+
+            if (toDownload.length === 0) {
+                this.showNotification('No models available for download (all have local matches or no download URLs).', 'info');
+                return;
+            }
+
+            // Start all downloads
+            this.showNotification(`Starting ${toDownload.length} download${toDownload.length > 1 ? 's' : ''}...`, 'info');
+            
+            for (const missing of toDownload) {
+                // Use downloadModel which handles progress tracking
+                this.downloadModel(missing);
+            }
+            
+            // Update button state to show Cancel All
+            this.updateDownloadAllButtonState();
+
+        } catch (error) {
+            console.error('Model Linker: Error in downloadAllMissing:', error);
+            this.showNotification('Error starting downloads: ' + error.message, 'error');
+        }
+    }
+
+    /**
      * Auto-resolve a model after download completes
      * Reloads the workflow analysis and resolves if the downloaded model is found
      */
@@ -915,6 +1137,9 @@ class LinkerManagerDialog extends ComfyDialog {
             const downloadId = data.download_id;
             this.activeDownloads[downloadId] = { missing, progressDiv, downloadBtn };
             
+            // Update the Download All button state
+            this.updateDownloadAllButtonState();
+            
             // Attach cancel handler to pending button (before polling replaces it)
             const pendingCancelBtn = progressDiv?.querySelector('.cancel-download-btn-pending');
             if (pendingCancelBtn) {
@@ -1002,6 +1227,7 @@ class LinkerManagerDialog extends ComfyDialog {
                     downloadBtn.style.background = '#4CAF50';
                 }
                 delete this.activeDownloads[downloadId];
+                this.updateDownloadAllButtonState();
                 this.showNotification(`Downloaded: ${progress.filename}`, 'success');
                 
                 // Auto-resolve: Reload workflow data and try to resolve the downloaded model
@@ -1019,6 +1245,7 @@ class LinkerManagerDialog extends ComfyDialog {
                     downloadBtn.textContent = 'Retry';
                 }
                 delete this.activeDownloads[downloadId];
+                this.updateDownloadAllButtonState();
 
             } else if (progress.status === 'cancelled') {
                 if (progressDiv) {
@@ -1030,6 +1257,7 @@ class LinkerManagerDialog extends ComfyDialog {
                     downloadBtn.style.background = '#4CAF50';  // Reset to green
                 }
                 delete this.activeDownloads[downloadId];
+                this.updateDownloadAllButtonState();
                 this.showNotification('Download cancelled', 'info');
 
             } else {
@@ -1053,6 +1281,7 @@ class LinkerManagerDialog extends ComfyDialog {
                 }
             }
             delete this.activeDownloads[downloadId];
+            this.updateDownloadAllButtonState();
         }
     }
 
@@ -1278,6 +1507,9 @@ class LinkerManagerDialog extends ComfyDialog {
             // Track and poll
             const downloadId = data.download_id;
             this.activeDownloads[downloadId] = { missing, progressDiv, downloadBtn: btn };
+            
+            // Update the Download All button state
+            this.updateDownloadAllButtonState();
             
             // Attach cancel handler to pending button (before polling replaces it)
             const pendingCancelBtn = progressDiv?.querySelector('.cancel-download-btn-pending');
