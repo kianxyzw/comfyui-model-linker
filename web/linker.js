@@ -6,9 +6,9 @@
 
 // Import ComfyUI APIs
 // These paths are relative to the ComfyUI web directory
-import { app } from "../../../scripts/app.js";
-import { api } from "../../../scripts/api.js";
-import { $el, ComfyDialog } from "../../../scripts/ui.js";
+import { app } from "../../scripts/app.js";
+import { api } from "../../scripts/api.js";
+import { $el, ComfyDialog } from "../../scripts/ui.js";
 
 // Check if ComfyButtonGroup is available (from newer ComfyUI versions)
 let ComfyButtonGroup = null;
@@ -39,7 +39,7 @@ class LinkerManagerDialog extends ComfyDialog {
         this.fullscreen = false;
         this._dragging = false;
         this._dragStart = null;
-        
+
         // Create dialog element using $el
         this.element = $el("div.comfy-modal", {
             id: "model-linker-modal",
@@ -198,7 +198,7 @@ class LinkerManagerDialog extends ComfyDialog {
             // ignore storage/observer errors
         }
     }
-    
+
     createHeader() {
         const header = $el("div", {
             style: {
@@ -320,7 +320,7 @@ class LinkerManagerDialog extends ComfyDialog {
         } catch (e) { /* ignore */ }
         return header;
     }
-    
+
     createContent() {
         // Wrap the body in a two-column layout: left = items, right = queued panel
         const body = $el("div", {
@@ -388,13 +388,13 @@ class LinkerManagerDialog extends ComfyDialog {
                     this.queueElement.style.width = `${w}px`;
                 }
             }
-        } catch (e) {}
+        } catch (e) { }
 
         try {
             const onSplitMouseDown = (e) => this.startSplitDrag(e);
             this.splitterElement.addEventListener('mousedown', onSplitMouseDown);
             this._splitterMouseDown = onSplitMouseDown;
-        } catch (e) {}
+        } catch (e) { }
         // Toggle icon always visible
         try {
             this.queueToggleIcon = $el("button", {
@@ -417,12 +417,12 @@ class LinkerManagerDialog extends ComfyDialog {
             }, [document.createTextNode('⮜')]);
             body.appendChild(this.queueToggleIcon);
             this.updateQueueToggleIcon();
-        } catch (e) {}
+        } catch (e) { }
         // Restore queue collapsed state
         try {
             const col = localStorage.getItem('model_linker_queue_collapsed');
             if (col === '1') this.setQueueCollapsed(true);
-        } catch (e) {}
+        } catch (e) { }
         return body;
     }
 
@@ -508,7 +508,7 @@ class LinkerManagerDialog extends ComfyDialog {
             html += `<div style="font-size:12px; opacity:0.9;">Original: <code>${orig}</code></div>`;
             html += `<div style="font-size:12px;">Selected: <code>${label}</code></div>`;
             html += `<div style="margin-top:6px;"><button id="${rmId}" class="model-linker-resolve-btn" style="padding:2px 8px;">Remove</button></div>`;
-            
+
         }
         html += '</div>';
         this.queueList.innerHTML = html;
@@ -560,11 +560,11 @@ class LinkerManagerDialog extends ComfyDialog {
         if (this.queueCollapsed) {
             this.queueElement.style.display = 'none';
             this.splitterElement.style.display = 'none';
-            try { localStorage.setItem('model_linker_queue_collapsed', '1'); } catch (e) {}
+            try { localStorage.setItem('model_linker_queue_collapsed', '1'); } catch (e) { }
         } else {
             this.queueElement.style.display = '';
             this.splitterElement.style.display = '';
-            try { localStorage.setItem('model_linker_queue_collapsed', '0'); } catch (e) {}
+            try { localStorage.setItem('model_linker_queue_collapsed', '0'); } catch (e) { }
         }
         this.updateQueuePanel();
         this.updateQueueToggleIcon();
@@ -581,7 +581,7 @@ class LinkerManagerDialog extends ComfyDialog {
             this.queueToggleIcon.title = 'Collapse queue';
         }
     }
-    
+
     createFooter() {
         // Create buttons container
         const footer = $el("div", {
@@ -619,7 +619,7 @@ class LinkerManagerDialog extends ComfyDialog {
         footer.appendChild(autoBtn);
         return footer;
     }
-    
+
     async show() {
         this.element.style.display = "flex";
         await this.ensureAllModelsLoaded();
@@ -627,9 +627,9 @@ class LinkerManagerDialog extends ComfyDialog {
         try {
             const fs = localStorage.getItem('model_linker_modal_fullscreen');
             if (fs === '1') this.setFullScreen(true);
-        } catch (e) {}
+        } catch (e) { }
     }
-    
+
     close() {
         this.element.style.display = "none";
     }
@@ -728,7 +728,7 @@ class LinkerManagerDialog extends ComfyDialog {
             localStorage.setItem('model_linker_modal_pos', JSON.stringify({ top: Math.round(rect.top), left: Math.round(rect.left) }));
         } catch (e) { /* ignore */ }
         // Restore selection
-        try { document.body.style.userSelect = this._prevUserSelect || ''; } catch (e) {}
+        try { document.body.style.userSelect = this._prevUserSelect || ''; } catch (e) { }
     }
 
     // Begin split drag for resizable panels
@@ -772,8 +772,8 @@ class LinkerManagerDialog extends ComfyDialog {
         try {
             const rect = this.queueElement.getBoundingClientRect();
             localStorage.setItem('model_linker_split_w', String(Math.round(rect.width)));
-        } catch (e) {}
-        try { document.body.style.userSelect = this._prevUserSelect || ''; } catch (e) {}
+        } catch (e) { }
+        try { document.body.style.userSelect = this._prevUserSelect || ''; } catch (e) { }
     }
 
     // Toggle full screen mode for the dialog
@@ -791,7 +791,7 @@ class LinkerManagerDialog extends ComfyDialog {
             try {
                 const rect = el.getBoundingClientRect();
                 localStorage.setItem('model_linker_modal_size_before_fs', JSON.stringify({ w: Math.round(rect.width), h: Math.round(rect.height) }));
-            } catch (e) {}
+            } catch (e) { }
             el.style.top = '0';
             el.style.left = '0';
             el.style.transform = 'none';
@@ -802,7 +802,7 @@ class LinkerManagerDialog extends ComfyDialog {
             el.style.borderRadius = '0';
             el.style.resize = 'none';
             if (btn) btn.textContent = '🗗';
-            try { localStorage.setItem('model_linker_modal_fullscreen', '1'); } catch (e) {}
+            try { localStorage.setItem('model_linker_modal_fullscreen', '1'); } catch (e) { }
         } else {
             // Restore centered sizing
             el.style.maxWidth = '95vw';
@@ -811,7 +811,7 @@ class LinkerManagerDialog extends ComfyDialog {
             el.style.resize = 'both';
             // Restore saved pre-FS size if available
             let wh = null;
-            try { wh = JSON.parse(localStorage.getItem('model_linker_modal_size_before_fs') || 'null'); } catch (e) {}
+            try { wh = JSON.parse(localStorage.getItem('model_linker_modal_size_before_fs') || 'null'); } catch (e) { }
             if (wh && wh.w && wh.h) {
                 el.style.width = `${wh.w}px`;
                 el.style.height = `${wh.h}px`;
@@ -837,7 +837,7 @@ class LinkerManagerDialog extends ComfyDialog {
                 el.style.transform = 'translate(-50%, -50%)';
             }
             if (btn) btn.textContent = '⛶';
-            try { localStorage.setItem('model_linker_modal_fullscreen', '0'); } catch (e) {}
+            try { localStorage.setItem('model_linker_modal_fullscreen', '0'); } catch (e) { }
         }
     }
 
@@ -855,7 +855,7 @@ class LinkerManagerDialog extends ComfyDialog {
             if (!workflow) {
                 workflow = this.getCurrentWorkflow();
             }
-            
+
             if (!workflow) {
                 this.contentElement.innerHTML = '<p>No workflow loaded. Please load a workflow first.</p>';
                 return;
@@ -919,23 +919,23 @@ class LinkerManagerDialog extends ComfyDialog {
         const sortedMissingModels = missingModels.sort((a, b) => {
             const aMatches = a.matches || [];
             const bMatches = b.matches || [];
-            
+
             // Filter to 70%+ confidence
             const aFiltered = aMatches.filter(m => m.confidence >= 70);
             const bFiltered = bMatches.filter(m => m.confidence >= 70);
-            
+
             // Check if they have 100% matches
             const aHas100 = aFiltered.some(m => m.confidence === 100);
             const bHas100 = bFiltered.some(m => m.confidence === 100);
-            
+
             // If one has 100% and the other doesn't, prioritize the one with 100%
             if (aHas100 && !bHas100) return -1;
             if (!aHas100 && bHas100) return 1;
-            
+
             // If both have 100% or neither has 100%, sort by best confidence
             const aBestConf = aFiltered.length > 0 ? Math.max(...aFiltered.map(m => m.confidence)) : 0;
             const bBestConf = bFiltered.length > 0 ? Math.max(...bFiltered.map(m => m.confidence)) : 0;
-            
+
             return bBestConf - aBestConf; // Higher confidence first
         });
 
@@ -950,14 +950,14 @@ class LinkerManagerDialog extends ComfyDialog {
         // Note: We need to match the exact same logic as renderMissingModel to find which buttons were rendered
         sortedMissingModels.forEach((missing, missingIndex) => {
             const allMatches = missing.matches || [];
-            
+
             // Filter out matches below 70% confidence threshold
             const filteredMatches = allMatches.filter(m => m.confidence >= 70);
-            
+
             // Filter to only 100% matches if available, otherwise use filtered matches (>=70%)
             const perfectMatches = filteredMatches.filter(m => m.confidence === 100);
             const otherMatches = filteredMatches.filter(m => m.confidence < 100 && m.confidence >= 70);
-            
+
             // Match the same logic as renderMissingModel
             const savedMatches = filteredMatches.filter(m => m.is_override);
             let matchesToShow = null;
@@ -977,14 +977,14 @@ class LinkerManagerDialog extends ComfyDialog {
                     if (!matchesToShow.some(x => x.model?.path === p)) matchesToShow.push(sm);
                 }
             }
-            
+
             // Sort: 100% matches first, then by confidence descending (same as renderMissingModel)
             const sortedMatches = matchesToShow.sort((a, b) => {
                 if (a.confidence === 100 && b.confidence !== 100) return -1;
                 if (a.confidence !== 100 && b.confidence === 100) return 1;
                 return b.confidence - a.confidence;
             });
-            
+
             // Attach listener for all displayed matches so the user can pick explicitly
             sortedMatches.forEach((match, matchIndex) => {
                 const buttonId = `resolve-${missing.node_id}-${missing.widget_index}-${matchIndex}`;
@@ -1017,17 +1017,17 @@ class LinkerManagerDialog extends ComfyDialog {
      */
     renderMissingModel(missing) {
         const allMatches = missing.matches || [];
-        
+
         // Filter out matches below 70% confidence threshold
         const filteredMatches = allMatches.filter(m => m.confidence >= 70);
         const hasMatches = filteredMatches.length > 0;
 
         let html = `<div id="missing-${missing.node_id}-${missing.widget_index}" style="border: 1px solid var(--border-color, #444); padding: 12px; border-radius: 4px; display:flex; flex-direction:column; align-items:stretch; gap:8px; white-space: normal;">`;
-        
+
         // Display subgraph name as primary identifier if available, otherwise show node type
         // A node type that's a UUID indicates it's a subgraph instance
         const isSubgraphNode = missing.node_type && missing.node_type.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
-        
+
         const locateId = `locate-${missing.node_id}-${missing.widget_index}`;
         if (missing.subgraph_name) {
             // Show subgraph name as primary identifier
@@ -1069,11 +1069,11 @@ class LinkerManagerDialog extends ComfyDialog {
         if (hasMatches) {
             // Filter out matches below 70% confidence threshold
             const filteredMatches = allMatches.filter(m => m.confidence >= 70);
-            
+
             // Separate 100% matches from others (from filtered list)
             const perfectMatches = filteredMatches.filter(m => m.confidence === 100);
             const otherMatches = filteredMatches.filter(m => m.confidence < 100 && m.confidence >= 70);
-            
+
             // If we have 100% matches, show them AND always include saved matches as well.
             const savedMatches = filteredMatches.filter(m => m.is_override);
             let matchesToShow = null;
@@ -1091,20 +1091,20 @@ class LinkerManagerDialog extends ComfyDialog {
                     if (!matchesToShow.some(x => x.model?.path === p)) matchesToShow.push(sm);
                 }
             }
-            
+
             html += `<div style="margin-top: 12px;"><strong>Suggested Matches:</strong></div>`;
             html += '<ul style="margin: 8px 0; padding-left: 20px;">';
-            
+
             // Sort: 100% matches first, then by confidence descending
             const sortedMatches = matchesToShow.sort((a, b) => {
                 if (a.confidence === 100 && b.confidence !== 100) return -1;
                 if (a.confidence !== 100 && b.confidence === 100) return 1;
                 return b.confidence - a.confidence;
             });
-            
+
             // Find the highest confidence match (even if not 100%)
             const highestConfidenceMatch = sortedMatches.length > 0 ? sortedMatches[0] : null;
-            
+
             for (let matchIndex = 0; matchIndex < sortedMatches.length; matchIndex++) {
                 const match = sortedMatches[matchIndex];
                 const buttonId = `resolve-${missing.node_id}-${missing.widget_index}-${matchIndex}`;
@@ -1123,9 +1123,9 @@ class LinkerManagerDialog extends ComfyDialog {
                     </button>`;
                 html += `</li>`;
             }
-            
+
             html += '</ul>';
-            
+
             // Add note if only showing 100% matches
             if (perfectMatches.length > 0 && otherMatches.length > 0) {
                 html += `<div style="color: #888; font-size: 12px; margin-top: 8px; font-style: italic;">Showing only 100% confidence matches. ${otherMatches.length} other match${otherMatches.length > 1 ? 'es' : ''} available.</div>`;
@@ -1140,16 +1140,16 @@ class LinkerManagerDialog extends ComfyDialog {
         // Compact summary removed (duplicate of info shown above)
 
         // combo picker injected via attachModelCombo
-        
-        
-        
-        
-        
-        
-        
-        
+
+
+
+
+
+
+
+
         html += `</div>`;
-        
+
         html += `</div>`;
 
         html += '</div>';
@@ -1398,7 +1398,7 @@ class LinkerManagerDialog extends ComfyDialog {
             for (const missing of missingModels) {
                 const matches = missing.matches || [];
                 const perfectMatch = matches.find((m) => m.confidence === 100);
-                
+
                 if (perfectMatch && perfectMatch.model) {
                     resolutions.push({
                         node_id: missing.node_id,
@@ -1433,17 +1433,17 @@ class LinkerManagerDialog extends ComfyDialog {
             }
 
             const resolveData = await resolveResponse.json();
-            
+
             if (resolveData.success) {
                 // Update workflow in ComfyUI
                 await this.updateWorkflowInComfyUI(resolveData.workflow);
-                
+
                 // Show success notification
                 this.showNotification(
                     `✓ Successfully linked ${resolutions.length} model${resolutions.length > 1 ? 's' : ''}!`,
                     'success'
                 );
-                
+
                 // Reload dialog using the updated workflow from API response
                 // This ensures we're analyzing the correct updated workflow
                 await this.loadWorkflowData(resolveData.workflow);
@@ -1485,7 +1485,7 @@ class LinkerManagerDialog extends ComfyDialog {
             const data = await response.json();
             if (data.success) {
                 await this.updateWorkflowInComfyUI(data.workflow);
-                this.showNotification(`✓ Linked ${list.length} selection${list.length>1?'s':''}`, 'success');
+                this.showNotification(`✓ Linked ${list.length} selection${list.length > 1 ? 's' : ''}`, 'success');
                 // Clear queue and refresh analysis
                 this.pendingResolutions = [];
                 this.pendingIndex = new Map();
@@ -1548,7 +1548,7 @@ class LinkerManagerDialog extends ComfyDialog {
                 listEl.innerHTML = '<div style="padding:6px; opacity:0.8;">No results</div>';
                 return;
             }
-            const esc = (s) => (s || '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));
+            const esc = (s) => (s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\'': '&#39;' }[c]));
             const q = (query || '').toLowerCase();
             let html = '';
             for (let i = 0; i < items.length; i++) {
@@ -1561,10 +1561,10 @@ class LinkerManagerDialog extends ComfyDialog {
                     const low = labRaw.toLowerCase();
                     let out = '';
                     let idx = 0;
-                    for (;;) {
+                    for (; ;) {
                         const j = low.indexOf(q, idx);
                         if (j === -1) { out += esc(labRaw.slice(idx)); break; }
-                        out += esc(labRaw.slice(idx, j)) + `<span style="font-weight:600; text-decoration:underline;">${esc(labRaw.slice(j, j+q.length))}</span>`;
+                        out += esc(labRaw.slice(idx, j)) + `<span style="font-weight:600; text-decoration:underline;">${esc(labRaw.slice(j, j + q.length))}</span>`;
                         idx = j + q.length;
                     }
                     labelHtml = out;
@@ -1625,7 +1625,7 @@ class LinkerManagerDialog extends ComfyDialog {
                 // Prevent wrapping in labels when measuring
                 try {
                     listEl.querySelectorAll('code').forEach(c => c.style.whiteSpace = 'nowrap');
-                } catch (e) {}
+                } catch (e) { }
                 let contentW = Math.ceil(listEl.scrollWidth);
                 const viewportRight = window.innerWidth - 16;
                 const maxAllowed = Math.max(200, viewportRight - inputRect.left);
@@ -1638,7 +1638,7 @@ class LinkerManagerDialog extends ComfyDialog {
                     listEl.style.visibility = prevVis || '';
                     listEl.style.width = prevWidth;
                 }
-            } catch (_) {}
+            } catch (_) { }
         };
         const openList = () => { updateListPosition(); listEl.style.display = 'block'; };
         const closeList = () => { listEl.style.display = 'none'; activeIndex = -1; };
@@ -1716,7 +1716,7 @@ class LinkerManagerDialog extends ComfyDialog {
                 try {
                     const resp = await api.fetchApi('/model_linker/models');
                     if (resp.ok) this.allModels = await resp.json();
-                } catch (e) {}
+                } catch (e) { }
                 updateList(); openList();
             });
         }
@@ -1731,7 +1731,7 @@ class LinkerManagerDialog extends ComfyDialog {
             }
             let node = null;
             if (typeof app.graph.getNodeById === 'function') {
-                try { node = app.graph.getNodeById(nodeId); } catch(e) { /* ignore */ }
+                try { node = app.graph.getNodeById(nodeId); } catch (e) { /* ignore */ }
             }
             if (!node && app.graph._nodes_by_id) {
                 node = app.graph._nodes_by_id[nodeId];
@@ -1744,19 +1744,19 @@ class LinkerManagerDialog extends ComfyDialog {
             if (canvas) {
                 // Deselect other nodes
                 if (typeof canvas.deselectAllNodes === 'function') {
-                    try { canvas.deselectAllNodes(); } catch(e) {}
+                    try { canvas.deselectAllNodes(); } catch (e) { }
                 }
                 // Select this node
                 if (typeof canvas.selectNode === 'function') {
-                    try { canvas.selectNode(node, true); } catch(e) {}
+                    try { canvas.selectNode(node, true); } catch (e) { }
                 } else if (typeof canvas.selectNodes === 'function') {
-                    try { canvas.selectNodes([node], true); } catch(e) {}
+                    try { canvas.selectNodes([node], true); } catch (e) { }
                 }
                 // Center on node
                 if (typeof canvas.centerOnNode === 'function') {
-                    try { canvas.centerOnNode(node); } catch(e) {}
+                    try { canvas.centerOnNode(node); } catch (e) { }
                 } else if (typeof canvas.scrollToCenter === 'function') {
-                    try { canvas.scrollToCenter(); } catch(e) {}
+                    try { canvas.scrollToCenter(); } catch (e) { }
                 }
             }
         } catch (error) {
@@ -1862,18 +1862,19 @@ class ManageOverridesDialog extends ComfyDialog {
                 ro.observe(this.element);
                 this._ro = ro;
             }
-        } catch (e) {}
+        } catch (e) { }
 
         // Scoped smaller button font-size (2px less) in overrides modal
         try {
             if (!document.getElementById('manage-overrides-style-buttons')) {
-                const style = $el('style', { id: 'manage-overrides-style-buttons', textContent: `
+                const style = $el('style', {
+                    id: 'manage-overrides-style-buttons', textContent: `
                     #manage-overrides-modal .model-linker-resolve-btn,
                     #manage-overrides-modal .comfy-button { font-size: calc(1em - 2px); }
                 `});
                 document.head.appendChild(style);
             }
-        } catch (e) {}
+        } catch (e) { }
     }
 
     _header() {
@@ -2242,5 +2243,29 @@ const modelLinker = new ModelLinker();
 // Register the extension
 app.registerExtension({
     name: "Model Linker",
-    setup: modelLinker.setup
+    setup: modelLinker.setup,
+    // Support for new ComfyUI Frontend menu system
+    commands: [
+        {
+            id: "model-linker-open",
+            icon: "🔗",
+            label: "Model Linker",
+            function: () => modelLinker.openLinkerManager()
+        }
+    ],
+    menuCommands: [
+        {
+            path: ["View"],
+            commands: ["model-linker-open"]
+        }
+    ],
+    // Add to canvas right-click menu
+    getCanvasMenuItems() {
+        return [
+            {
+                content: "🔗 Model Linker",
+                callback: () => modelLinker.openLinkerManager()
+            }
+        ];
+    }
 });
