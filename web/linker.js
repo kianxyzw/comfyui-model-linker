@@ -1625,6 +1625,8 @@ class ModelLinker {
         this.buttonGroup = null;
         this.buttonId = "model-linker-button";
         this.dialog = null;
+        this.isCheckingMissing = false;  // Prevent multiple simultaneous checks
+        this.lastCheckedWorkflow = null;  // Track to avoid duplicate checks
     }
 
     setup = async () => {
@@ -1643,6 +1645,9 @@ class ModelLinker {
                 this.openLinkerManager();
             }
         });
+
+        // Listen for workflow load events to auto-check for missing models
+        this.setupAutoOpenOnMissingModels();
 
         // Try to use new ComfyUI button system (like ComfyUI Manager does)
         try {
@@ -1667,6 +1672,430 @@ class ModelLinker {
             // Fallback for older ComfyUI versions without the new button system
             console.log('Model Linker: New button system not available, using floating button fallback.');
             this.createFloatingButton();
+        }
+    }
+
+    /**
+     * Setup auto-open functionality when workflow is loaded with missing models
+     */
+    setupAutoOpenOnMissingModels() {
+        // Watch for ComfyUI's Missing Models popup and inject our button
+        this.setupMissingModelsPopupObserver();
+
+        console.log('Model Linker: Missing models popup button injection enabled');
+    }
+
+    /**
+     * Setup MutationObserver to detect ComfyUI's Missing Models popup and inject our button
+     */
+    setupMissingModelsPopupObserver() {
+        const observer = new MutationObserver((mutations) => {
+            for (const mutation of mutations) {
+                for (const node of mutation.addedNodes) {
+                    if (node.nodeType === Node.ELEMENT_NODE) {
+                        this.checkAndInjectButton(node);
+                    }
+                }
+            }
+        });
+
+        // Observe the entire document for added nodes
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+    }
+
+    /**
+     * Check if a node is the Missing Models popup and inject our buttons
+     */
+    checkAndInjectButton(node) {
+        // Look for the Missing Models popup by finding elements with "Missing Models" text
+        const findMissingModelsDialog = (element) => {
+            // Check if this element or its children contain "Missing Models" heading
+            const headings = element.querySelectorAll ? element.querySelectorAll('h2, h3, [class*="title"], [class*="header"]') : [];
+            for (const heading of headings) {
+                if (heading.textContent?.includes('Missing Models')) {
+                    return element;
+                }
+            }
+            // Also check text content directly
+            if (element.textContent?.includes('Missing Models') && 
+                element.textContent?.includes('following models were not found')) {
+                return element;
+            }
+            return null;
+        };
+
+        const dialog = findMissingModelsDialog(node);
+        if (!dialog) return;
+
+        // Check if we already injected buttons
+        if (dialog.querySelector('#model-linker-btn-container')) return;
+
+        // Find a suitable place to inject the buttons
+        const injectButtons = () => {
+            // Create container for our buttons
+            const btnContainer = document.createElement('div');
+            btnContainer.id = 'model-linker-btn-container';
+            btnContainer.style.cssText = `
+                display: flex;
+                gap: 8px;
+                margin: 12px 16px;
+            `;
+
+            // Common button style
+            const btnStyle = `
+                padding: 8px 14px;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 12px;
+                font-weight: 600;
+                transition: all 0.2s ease;
+                white-space: nowrap;
+            `;
+
+            // Auto-resolve button
+            const autoResolveBtn = document.createElement('button');
+            autoResolveBtn.id = 'model-linker-auto-resolve-btn';
+            autoResolveBtn.textContent = '🔗 Auto-resolve 100%';
+            autoResolveBtn.title = 'Automatically link models with 100% confidence matches';
+            autoResolveBtn.style.cssText = btnStyle + `background: #2196F3;`;
+            
+            autoResolveBtn.addEventListener('mouseenter', () => {
+                autoResolveBtn.style.background = '#1976D2';
+            });
+            autoResolveBtn.addEventListener('mouseleave', () => {
+                autoResolveBtn.style.background = '#2196F3';
+            });
+            autoResolveBtn.addEventListener('click', async () => {
+                await this.handleAutoResolveInPopup(dialog, autoResolveBtn);
+            });
+
+            // Download missing button
+            const downloadBtn = document.createElement('button');
+            downloadBtn.id = 'model-linker-download-btn';
+            downloadBtn.textContent = '⬇ Download Missing';
+            downloadBtn.title = 'Open Model Linker to download missing models with progress tracking';
+            downloadBtn.style.cssText = btnStyle + `background: #4CAF50;`;
+            
+            downloadBtn.addEventListener('mouseenter', () => {
+                downloadBtn.style.background = '#45a049';
+            });
+            downloadBtn.addEventListener('mouseleave', () => {
+                downloadBtn.style.background = '#4CAF50';
+            });
+            downloadBtn.addEventListener('click', () => {
+                // Close the popup
+                const closeBtn = dialog.querySelector('button[class*="close"]') || 
+                                 dialog.querySelector('svg')?.closest('button') ||
+                                 Array.from(dialog.querySelectorAll('button')).find(b => b.textContent === '×' || b.innerHTML.includes('×'));
+                if (closeBtn) {
+                    closeBtn.click();
+                }
+                // Open Model Linker
+                this.openLinkerManager();
+            });
+
+            btnContainer.appendChild(autoResolveBtn);
+            btnContainer.appendChild(downloadBtn);
+
+            // Find the list of models (usually a scrollable container with the model items)
+            const modelList = dialog.querySelector('[style*="overflow"]') || 
+                             dialog.querySelector('[class*="list"]') ||
+                             dialog.querySelector('[class*="content"]');
+            
+            if (modelList) {
+                // Insert before the model list
+                modelList.parentElement?.insertBefore(btnContainer, modelList);
+            } else {
+                // Find after the description text
+                const allElements = dialog.querySelectorAll('*');
+                for (const el of allElements) {
+                    if (el.textContent?.includes('following models were not found') && 
+                        el.children.length === 0) {
+                        el.parentElement?.insertBefore(btnContainer, el.nextSibling);
+                        break;
+                    }
+                }
+            }
+            
+            console.log('Model Linker: Injected buttons into Missing Models popup');
+        };
+
+        // Small delay to ensure popup is fully rendered
+        setTimeout(injectButtons, 100);
+    }
+
+    /**
+     * Handle auto-resolve in the popup - resolve 100% matches and open Model Linker for remaining
+     */
+    async handleAutoResolveInPopup(dialog, button) {
+        button.textContent = '⏳ Resolving...';
+        button.disabled = true;
+
+        // Close the popup first
+        const closeBtn = dialog.querySelector('button[class*="close"]') || 
+                        dialog.querySelector('svg')?.closest('button') ||
+                        Array.from(dialog.querySelectorAll('button')).find(b => 
+                            b.textContent === '×' || b.innerHTML.includes('×') || b.innerHTML.includes('close'));
+        
+        if (closeBtn) {
+            closeBtn.click();
+        }
+
+        // Small delay to let popup close
+        await new Promise(r => setTimeout(r, 200));
+
+        // Create dialog if needed
+        if (!this.dialog) {
+            this.dialog = new LinkerManagerDialog();
+        }
+
+        // Run auto-resolve for 100% matches
+        await this.dialog.autoResolve100Percent();
+
+        // Small delay then open the Model Linker UI to show remaining models
+        await new Promise(r => setTimeout(r, 300));
+        
+        // Open Model Linker to handle remaining unlinked/downloadable models
+        this.openLinkerManager();
+    }
+
+    /**
+     * Mark resolved model items in the popup as linked (green) and hide download buttons
+     */
+    removeResolvedFromPopup(dialog, resolvedFilenames) {
+        console.log('Model Linker: Looking for resolved filenames:', resolvedFilenames);
+        
+        // Strategy: For each filename, find text nodes containing it, 
+        // then find the nearest Download button and mark that row
+        for (const filename of resolvedFilenames) {
+            // Get all text in the dialog and find elements containing our filename
+            const walker = document.createTreeWalker(
+                dialog,
+                NodeFilter.SHOW_TEXT,
+                null,
+                false
+            );
+            
+            let node;
+            while (node = walker.nextNode()) {
+                if (node.textContent?.toLowerCase().includes(filename)) {
+                    // Found text containing filename - now find parent with Download button
+                    let parent = node.parentElement;
+                    let attempts = 0;
+                    
+                    while (parent && parent !== dialog && attempts < 10) {
+                        // Look for Download button at this level
+                        const downloadBtn = Array.from(parent.querySelectorAll('button'))
+                            .find(btn => btn.textContent?.includes('Download') && 
+                                        !btn.id?.includes('model-linker'));
+                        
+                        if (downloadBtn) {
+                            console.log('Model Linker: Found entry for', filename);
+                            this.markEntryAsResolved(parent, downloadBtn);
+                            break;
+                        }
+                        
+                        parent = parent.parentElement;
+                        attempts++;
+                    }
+                    
+                    // Only process first match for this filename
+                    break;
+                }
+            }
+        }
+    }
+
+    /**
+     * Mark a model entry as resolved with visual feedback
+     */
+    markEntryAsResolved(container, downloadBtn) {
+        // Already marked?
+        if (container.dataset.resolved === 'true') return;
+        container.dataset.resolved = 'true';
+        
+        console.log('Model Linker: Marking entry as resolved', container);
+        
+        // Add green background/styling to the container
+        container.style.transition = 'all 0.3s ease';
+        container.style.background = 'rgba(76, 175, 80, 0.2)';
+        container.style.borderRadius = '6px';
+        container.style.border = '1px solid #4CAF50';
+        
+        // Hide the Download button and replace with badge
+        if (downloadBtn) {
+            // Create badge
+            const badge = document.createElement('span');
+            badge.textContent = '✓ Linked';
+            badge.style.cssText = `
+                display: inline-flex;
+                align-items: center;
+                padding: 4px 12px;
+                background: #4CAF50;
+                color: white;
+                border-radius: 4px;
+                font-size: 12px;
+                font-weight: 600;
+            `;
+            
+            // Replace download button with badge
+            downloadBtn.style.display = 'none';
+            downloadBtn.parentElement?.insertBefore(badge, downloadBtn);
+        }
+        
+        // Find and hide Copy URL button
+        const allBtns = container.querySelectorAll('button');
+        for (const btn of allBtns) {
+            if (btn.textContent?.includes('Copy URL')) {
+                btn.style.display = 'none';
+            }
+        }
+    }
+
+    /**
+     * Count remaining model items in the popup
+     */
+    countRemainingItems(dialog) {
+        // Count elements that look like model entries (have Download buttons)
+        const downloadButtons = dialog.querySelectorAll('button');
+        let count = 0;
+        for (const btn of downloadButtons) {
+            if (btn.textContent?.includes('Download') && !btn.id?.includes('model-linker')) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /**
+     * Update nodes directly in the graph without triggering a full workflow reload
+     * This prevents the Missing Models popup from closing
+     */
+    updateNodesDirectly(resolutions) {
+        if (!app?.graph) {
+            console.warn('Model Linker: Cannot update nodes - graph not available');
+            return;
+        }
+
+        for (const resolution of resolutions) {
+            const nodeId = resolution.node_id;
+            const widgetIndex = resolution.widget_index;
+            const resolvedPath = resolution.resolved_path;
+
+            // Find the node in the graph
+            const node = app.graph.getNodeById(nodeId);
+            if (!node) {
+                console.warn(`Model Linker: Node ${nodeId} not found in graph`);
+                continue;
+            }
+
+            // Update the widget value
+            if (node.widgets && node.widgets[widgetIndex]) {
+                const widget = node.widgets[widgetIndex];
+                widget.value = resolvedPath;
+                
+                // Trigger widget callback if it exists
+                if (widget.callback) {
+                    widget.callback(resolvedPath, app.graph, node, null, null);
+                }
+                
+                console.log(`Model Linker: Updated node ${nodeId} widget ${widgetIndex} to ${resolvedPath}`);
+            } else if (node.widgets_values) {
+                // Fallback: update widgets_values array directly
+                node.widgets_values[widgetIndex] = resolvedPath;
+                console.log(`Model Linker: Updated node ${nodeId} widgets_values[${widgetIndex}] to ${resolvedPath}`);
+            }
+
+            // Mark node as dirty to trigger redraw
+            if (node.setDirtyCanvas) {
+                node.setDirtyCanvas(true, true);
+            }
+        }
+
+        // Trigger canvas redraw
+        if (app.graph.setDirtyCanvas) {
+            app.graph.setDirtyCanvas(true, true);
+        }
+    }
+
+    /**
+     * Check if auto-open is enabled in user settings
+     */
+    isAutoOpenEnabled() {
+        return localStorage.getItem('modelLinker.autoOpenOnMissing') !== 'false';
+    }
+
+    /**
+     * Set auto-open preference
+     */
+    setAutoOpenEnabled(enabled) {
+        localStorage.setItem('modelLinker.autoOpenOnMissing', enabled ? 'true' : 'false');
+    }
+
+    /**
+     * Check for missing models and auto-open dialog if any are found
+     */
+    async checkAndOpenForMissingModels() {
+        // Check if auto-open is enabled
+        if (!this.isAutoOpenEnabled()) {
+            return;
+        }
+
+        // Prevent multiple simultaneous checks
+        if (this.isCheckingMissing) {
+            return;
+        }
+
+        this.isCheckingMissing = true;
+
+        try {
+            // Small delay to let workflow fully load
+            await new Promise(r => setTimeout(r, 500));
+
+            // Get current workflow
+            const workflow = app?.graph?.serialize();
+            if (!workflow) {
+                return;
+            }
+
+            // Create a simple hash to detect if workflow changed
+            const workflowHash = JSON.stringify(workflow.nodes?.map(n => n.type + ':' + JSON.stringify(n.widgets_values || [])));
+            
+            // Skip if we already checked this exact workflow
+            if (this.lastCheckedWorkflow === workflowHash) {
+                return;
+            }
+            this.lastCheckedWorkflow = workflowHash;
+
+            // Call analyze endpoint to check for missing models
+            const response = await api.fetchApi('/model_linker/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ workflow })
+            });
+
+            if (!response.ok) {
+                console.warn('Model Linker: Failed to analyze workflow for missing models');
+                return;
+            }
+
+            const data = await response.json();
+            
+            // Auto-open dialog if there are missing models
+            if (data.total_missing > 0) {
+                console.log(`Model Linker: Found ${data.total_missing} missing model(s), opening dialog...`);
+                this.openLinkerManager();
+            }
+
+        } catch (error) {
+            console.error('Model Linker: Error checking for missing models:', error);
+        } finally {
+            this.isCheckingMissing = false;
         }
     }
 
