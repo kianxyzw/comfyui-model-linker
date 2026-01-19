@@ -18,6 +18,9 @@ class LinkerManagerDialog extends ComfyDialog {
         this.activeDownloads = {};  // Track active downloads
         this.boundHandleOutsideClick = this.handleOutsideClick.bind(this);
         
+        // Inject global styles for the redesigned UI
+        this.injectStyles();
+        
         // Create backdrop overlay for click-outside-to-close
         this.backdrop = $el("div.model-linker-backdrop", {
             parent: document.body,
@@ -41,7 +44,7 @@ class LinkerManagerDialog extends ComfyDialog {
                 top: "50%",
                 left: "50%",
                 transform: "translate(-50%, -50%)",
-                width: "900px",
+                width: "1100px",
                 height: "700px",
                 maxWidth: "95vw",
                 maxHeight: "95vh",
@@ -63,6 +66,510 @@ class LinkerManagerDialog extends ComfyDialog {
         
         // Add click listener to backdrop
         this.backdrop.addEventListener('click', () => this.close());
+    }
+    
+    /**
+     * Inject global CSS styles for the Model Linker UI
+     */
+    injectStyles() {
+        // Only inject once
+        if (document.getElementById('model-linker-styles')) return;
+        
+        const styles = document.createElement('style');
+        styles.id = 'model-linker-styles';
+        styles.textContent = `
+            /* CSS Variables for Model Linker */
+            :root {
+                --ml-bg: #222;
+                --ml-card-bg: #2a2a2a;
+                --ml-card-bg-alt: #252525;
+                --ml-border: #3a3a3a;
+                --ml-text: #e0e0e0;
+                --ml-text-muted: #888;
+                --ml-text-dim: #666;
+                --ml-accent: #4CAF50;
+                --ml-accent-hover: #45a049;
+                --ml-confidence-high: #4CAF50;
+                --ml-confidence-medium: #FFC107;
+                --ml-confidence-low: #f44336;
+                --ml-link-color: #8ab4f8;
+            }
+            
+            /* Card Styles */
+            .ml-card {
+                background: var(--ml-card-bg);
+                border-radius: 8px;
+                padding: 16px;
+                margin-bottom: 12px;
+                transition: background 0.2s ease;
+            }
+            .ml-card:nth-child(even) {
+                background: var(--ml-card-bg-alt);
+            }
+            .ml-card:hover {
+                background: #303030;
+            }
+            
+            /* Card Header */
+            .ml-card-header {
+                display: flex;
+                align-items: flex-start;
+                justify-content: space-between;
+                gap: 12px;
+                margin-bottom: 12px;
+            }
+            .ml-card-title {
+                font-size: 15px;
+                font-weight: 600;
+                color: var(--ml-text);
+                margin: 0;
+                word-break: break-word;
+                flex: 1;
+            }
+            .ml-node-chip {
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+                padding: 3px 8px;
+                background: #3a3a3a;
+                border-radius: 4px;
+                font-size: 11px;
+                color: var(--ml-text-muted);
+                white-space: nowrap;
+                flex-shrink: 0;
+            }
+            .ml-category-chip {
+                display: inline-flex;
+                padding: 2px 6px;
+                background: #444;
+                border-radius: 3px;
+                font-size: 10px;
+                color: var(--ml-text-muted);
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }
+            
+            /* Two-Column Layout */
+            .ml-columns {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 16px;
+            }
+            @media (max-width: 700px) {
+                .ml-columns {
+                    grid-template-columns: 1fr;
+                }
+            }
+            .ml-column {
+                min-width: 0;
+            }
+            .ml-column-header {
+                font-size: 11px;
+                font-weight: 600;
+                color: var(--ml-text-muted);
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                margin-bottom: 8px;
+                padding-bottom: 6px;
+                border-bottom: 1px solid var(--ml-border);
+            }
+            
+            /* Filename Chips */
+            .ml-chip {
+                display: inline-flex;
+                align-items: center;
+                padding: 4px 10px;
+                background: #3a3a3a;
+                border-radius: 6px;
+                font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+                font-size: 12px;
+                color: var(--ml-text);
+                max-width: 100%;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .ml-chip:hover {
+                background: #444;
+            }
+            
+            /* Confidence Badges */
+            .ml-badge {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                padding: 2px 8px;
+                border-radius: 12px;
+                font-size: 11px;
+                font-weight: 600;
+                color: white;
+                min-width: 42px;
+                text-align: center;
+            }
+            .ml-badge-high {
+                background: var(--ml-confidence-high);
+            }
+            .ml-badge-medium {
+                background: var(--ml-confidence-medium);
+                color: #333;
+            }
+            .ml-badge-low {
+                background: var(--ml-confidence-low);
+            }
+            
+            /* Match Row */
+            .ml-match-row {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                padding: 8px;
+                border-radius: 6px;
+                margin-bottom: 6px;
+                background: rgba(255,255,255,0.02);
+                transition: background 0.15s ease;
+            }
+            .ml-match-row:hover {
+                background: rgba(255,255,255,0.05);
+            }
+            .ml-match-row.ml-best-match {
+                background: rgba(76, 175, 80, 0.1);
+                border-left: 3px solid var(--ml-confidence-high);
+                padding-left: 10px;
+            }
+            .ml-match-filename {
+                flex: 1;
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+                font-size: 12px;
+                color: var(--ml-text);
+            }
+            
+            /* Buttons */
+            .ml-btn {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 6px;
+                padding: 6px 12px;
+                border: none;
+                border-radius: 6px;
+                font-size: 12px;
+                font-weight: 500;
+                cursor: pointer;
+                transition: all 0.15s ease;
+                white-space: nowrap;
+            }
+            .ml-btn:disabled {
+                opacity: 0.5;
+                cursor: not-allowed;
+            }
+            .ml-btn-primary {
+                background: var(--ml-accent);
+                color: white;
+            }
+            .ml-btn-primary:hover:not(:disabled) {
+                background: var(--ml-accent-hover);
+            }
+            .ml-btn-secondary {
+                background: transparent;
+                color: var(--ml-text);
+                border: 1px solid var(--ml-border);
+            }
+            .ml-btn-secondary:hover:not(:disabled) {
+                background: rgba(255,255,255,0.05);
+                border-color: #555;
+            }
+            .ml-btn-link {
+                background: #2196F3;
+                color: white;
+            }
+            .ml-btn-link:hover:not(:disabled) {
+                background: #1976D2;
+            }
+            .ml-btn-download {
+                background: var(--ml-accent);
+                color: white;
+            }
+            .ml-btn-download:hover:not(:disabled) {
+                background: var(--ml-accent-hover);
+            }
+            .ml-btn-danger {
+                background: #f44336;
+                color: white;
+            }
+            .ml-btn-danger:hover:not(:disabled) {
+                background: #d32f2f;
+            }
+            .ml-btn-sm {
+                padding: 4px 8px;
+                font-size: 11px;
+            }
+            .ml-btn-icon {
+                font-size: 14px;
+            }
+            
+            /* Download Section */
+            .ml-download-section {
+                padding: 12px;
+                background: rgba(76, 175, 80, 0.05);
+                border-radius: 6px;
+                border: 1px dashed var(--ml-border);
+            }
+            .ml-download-info {
+                font-size: 12px;
+                color: var(--ml-text-muted);
+                margin-top: 6px;
+            }
+            .ml-download-source {
+                color: var(--ml-accent);
+                font-weight: 500;
+            }
+            .ml-download-size {
+                color: var(--ml-text-dim);
+                margin-left: 8px;
+            }
+            
+            /* Status Messages */
+            .ml-status {
+                display: flex;
+                align-items: flex-start;
+                gap: 10px;
+                padding: 10px 14px;
+                border-radius: 6px;
+                font-size: 13px;
+                margin-top: 8px;
+            }
+            .ml-status-icon {
+                font-size: 16px;
+                flex-shrink: 0;
+            }
+            .ml-status-error {
+                background: rgba(244, 67, 54, 0.1);
+                border: 1px solid rgba(244, 67, 54, 0.3);
+                color: #ef9a9a;
+            }
+            .ml-status-success {
+                background: rgba(76, 175, 80, 0.1);
+                border: 1px solid rgba(76, 175, 80, 0.3);
+                color: #a5d6a7;
+            }
+            .ml-status-info {
+                background: rgba(33, 150, 243, 0.1);
+                border: 1px solid rgba(33, 150, 243, 0.3);
+                color: #90caf9;
+            }
+            .ml-status-warning {
+                background: rgba(255, 152, 0, 0.1);
+                border: 1px solid rgba(255, 152, 0, 0.3);
+                color: #ffcc80;
+            }
+            
+            /* Progress Bar */
+            .ml-progress-container {
+                margin-top: 8px;
+            }
+            .ml-progress-bar {
+                height: 6px;
+                background: #333;
+                border-radius: 3px;
+                overflow: hidden;
+            }
+            .ml-progress-fill {
+                height: 100%;
+                background: var(--ml-accent);
+                transition: width 0.3s ease;
+            }
+            .ml-progress-text {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-top: 6px;
+                font-size: 11px;
+                color: var(--ml-text-muted);
+            }
+            
+            /* Scrollbar */
+            .ml-scrollable {
+                overflow-y: auto;
+            }
+            .ml-scrollable::-webkit-scrollbar {
+                width: 8px;
+            }
+            .ml-scrollable::-webkit-scrollbar-track {
+                background: transparent;
+            }
+            .ml-scrollable::-webkit-scrollbar-thumb {
+                background: #444;
+                border-radius: 4px;
+            }
+            .ml-scrollable::-webkit-scrollbar-thumb:hover {
+                background: #555;
+            }
+            
+            /* Footer */
+            .ml-footer {
+                display: flex;
+                justify-content: flex-end;
+                align-items: center;
+                gap: 10px;
+                padding: 16px 20px;
+                background: linear-gradient(to top, var(--ml-bg) 0%, var(--ml-bg) 70%, transparent 100%);
+                border-top: 1px solid var(--ml-border);
+            }
+            
+            /* No matches text */
+            .ml-no-matches {
+                color: var(--ml-text-muted);
+                font-size: 12px;
+                font-style: italic;
+                padding: 8px 0;
+            }
+            
+            /* Link styling */
+            .ml-link {
+                color: var(--ml-link-color);
+                text-decoration: none;
+            }
+            .ml-link:hover {
+                text-decoration: underline;
+            }
+        `;
+        
+        document.head.appendChild(styles);
+    }
+    
+    /**
+     * Get a colored confidence badge HTML
+     * @param {number} confidence - Confidence percentage (0-100)
+     * @returns {string} HTML for the badge
+     */
+    getConfidenceBadge(confidence) {
+        let badgeClass;
+        if (confidence >= 95) {
+            badgeClass = 'ml-badge-high';
+        } else if (confidence >= 70) {
+            badgeClass = 'ml-badge-medium';
+        } else {
+            badgeClass = 'ml-badge-low';
+        }
+        return `<span class="ml-badge ${badgeClass}">${confidence}%</span>`;
+    }
+    
+    /**
+     * Format a filename with smart truncation
+     * @param {string} path - Full path or filename
+     * @param {number} maxLength - Maximum display length
+     * @returns {object} { display: truncated name, full: full name }
+     */
+    formatFilename(path, maxLength = 50) {
+        if (!path) return { display: 'Unknown', full: 'Unknown' };
+        
+        // Extract just the filename from path
+        const filename = path.split(/[\/\\]/).pop() || path;
+        
+        if (filename.length <= maxLength) {
+            return { display: filename, full: filename };
+        }
+        
+        // Smart truncation: keep extension visible
+        const lastDot = filename.lastIndexOf('.');
+        const ext = lastDot > 0 ? filename.slice(lastDot) : '';
+        const name = lastDot > 0 ? filename.slice(0, lastDot) : filename;
+        
+        // Calculate how much of the name we can show
+        const availableLength = maxLength - ext.length - 3; // 3 for "..."
+        if (availableLength < 8) {
+            // Too short, just truncate at the end
+            return { display: filename.slice(0, maxLength - 3) + '...', full: filename };
+        }
+        
+        // Truncate middle of name
+        const frontLength = Math.ceil(availableLength / 2);
+        const backLength = Math.floor(availableLength / 2);
+        const truncated = name.slice(0, frontLength) + '...' + name.slice(-backLength) + ext;
+        
+        return { display: truncated, full: filename };
+    }
+    
+    /**
+     * Format a path showing directory context
+     * @param {string} path - Full relative path
+     * @param {number} maxLength - Maximum display length
+     * @returns {object} { display: formatted path, full: full path }
+     */
+    formatPath(path, maxLength = 60) {
+        if (!path) return { display: 'Unknown', full: 'Unknown' };
+        
+        if (path.length <= maxLength) {
+            return { display: path, full: path };
+        }
+        
+        // Try to show meaningful parts: first dir + filename
+        const parts = path.split(/[\/\\]/);
+        const filename = parts.pop() || '';
+        const firstDir = parts[0] || '';
+        
+        if (parts.length === 0) {
+            // Just a filename
+            return this.formatFilename(path, maxLength);
+        }
+        
+        // Show first directory + ... + filename
+        const formatted = firstDir + '\\...' + (filename.length > 40 ? this.formatFilename(filename, 40).display : filename);
+        
+        if (formatted.length <= maxLength) {
+            return { display: formatted, full: path };
+        }
+        
+        // Still too long, just truncate
+        return { display: path.slice(0, maxLength - 3) + '...', full: path };
+    }
+    
+    /**
+     * Render a status message with icon
+     * @param {string} message - Message text
+     * @param {string} type - 'error' | 'success' | 'info' | 'warning'
+     * @returns {string} HTML for status message
+     */
+    renderStatusMessage(message, type = 'info') {
+        const icons = {
+            error: '⚠',
+            success: '✓',
+            info: 'ℹ',
+            warning: '⚡'
+        };
+        const icon = icons[type] || icons.info;
+        
+        return `
+            <div class="ml-status ml-status-${type}">
+                <span class="ml-status-icon">${icon}</span>
+                <span>${message}</span>
+            </div>
+        `;
+    }
+    
+    /**
+     * Render a progress bar
+     * @param {number} percent - Progress percentage (0-100)
+     * @param {string} leftText - Text on the left
+     * @param {string} rightText - Text on the right
+     * @returns {string} HTML for progress bar
+     */
+    renderProgressBar(percent, leftText = '', rightText = '') {
+        return `
+            <div class="ml-progress-container">
+                <div class="ml-progress-bar">
+                    <div class="ml-progress-fill" style="width: ${percent}%"></div>
+                </div>
+                <div class="ml-progress-text">
+                    <span>${leftText}</span>
+                    <span>${rightText}</span>
+                </div>
+            </div>
+        `;
     }
     
     /**
@@ -117,13 +624,14 @@ class LinkerManagerDialog extends ComfyDialog {
     }
     
     createContent() {
-        this.contentElement = $el("div", {
+        this.contentElement = $el("div.ml-scrollable", {
             id: "model-linker-content",
             style: {
-                padding: "16px",
+                padding: "20px",
                 overflowY: "auto",
                 flex: "1",
-                minHeight: "0"
+                minHeight: "0",
+                backgroundColor: "var(--ml-bg, #222)"
             }
         });
         return this.contentElement;
@@ -131,37 +639,40 @@ class LinkerManagerDialog extends ComfyDialog {
     
     createFooter() {
         // Store reference to download all button so we can update its text
-        this.downloadAllButton = $el("button", {
-            textContent: "Download All Missing",
+        this.downloadAllButton = $el("button.ml-btn.ml-btn-download", {
             onclick: () => this.handleDownloadAllClick(),
-            className: "comfy-button",
             style: {
-                padding: "8px 16px",
-                background: "#4CAF50",
-                color: "white",
-                border: "none",
-                borderRadius: "4px"
-            }
-        });
-        
-        return $el("div", {
-            style: {
-                padding: "16px",
-                borderTop: "1px solid var(--border-color)",
-                display: "flex",
-                justifyContent: "flex-end",
-                gap: "8px"
+                padding: "10px 20px",
+                fontSize: "13px"
             }
         }, [
-            this.downloadAllButton,
-            $el("button", {
-                textContent: "Auto-Resolve 100% Matches",
-                onclick: () => this.autoResolve100Percent(),
-                className: "comfy-button",
-                style: {
-                    padding: "8px 16px"
-                }
-            })
+            $el("span.ml-btn-icon", { textContent: "☁" }),
+            $el("span", { textContent: " Download All Missing" })
+        ]);
+        
+        // Auto-resolve button (secondary style)
+        this.autoResolveButton = $el("button.ml-btn.ml-btn-secondary", {
+            onclick: () => this.autoResolve100Percent(),
+            style: {
+                padding: "10px 20px",
+                fontSize: "13px"
+            }
+        }, [
+            $el("span.ml-btn-icon", { textContent: "🔗" }),
+            $el("span", { textContent: " Auto-Link 100%" })
+        ]);
+        
+        return $el("div.ml-footer", {
+            style: {
+                position: "sticky",
+                bottom: "0",
+                backgroundColor: "var(--ml-bg, #222)",
+                backdropFilter: "blur(8px)",
+                WebkitBackdropFilter: "blur(8px)"
+            }
+        }, [
+            this.autoResolveButton,
+            this.downloadAllButton
         ]);
     }
     
@@ -206,22 +717,25 @@ class LinkerManagerDialog extends ComfyDialog {
         
         const activeCount = Object.keys(this.activeDownloads).length;
         if (activeCount > 0) {
-            this.downloadAllButton.textContent = `Cancel All (${activeCount})`;
-            this.downloadAllButton.style.background = "#f44336";  // Red for cancel
+            this.downloadAllButton.innerHTML = `<span class="ml-btn-icon">✕</span> Cancel All (${activeCount})`;
+            this.downloadAllButton.classList.remove('ml-btn-download');
+            this.downloadAllButton.classList.add('ml-btn-danger');
         } else {
-            this.downloadAllButton.textContent = "Download All Missing";
-            this.downloadAllButton.style.background = "#4CAF50";  // Green for download
+            this.downloadAllButton.innerHTML = `<span class="ml-btn-icon">☁</span> Download All Missing`;
+            this.downloadAllButton.classList.remove('ml-btn-danger');
+            this.downloadAllButton.classList.add('ml-btn-download');
         }
     }
     
-    async show() {
+    async show(workflow = null) {
         this.backdrop.style.display = "block";
         this.element.style.display = "flex";
         
         // Update button state in case there are active downloads
         this.updateDownloadAllButtonState();
         
-        await this.loadWorkflowData();
+        // Use provided workflow or fetch from current graph
+        await this.loadWorkflowData(workflow);
     }
     
     close() {
@@ -314,17 +828,18 @@ class LinkerManagerDialog extends ComfyDialog {
                 // Show that download is in progress
                 newProgressDiv.style.display = 'block';
                 newProgressDiv.innerHTML = `
-                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                    <div class="ml-progress-container">
                         <div style="display: flex; align-items: center; gap: 8px;">
-                            <div style="flex: 1; background: #333; border-radius: 4px; height: 8px; overflow: hidden;">
-                                <div style="width: 0%; background: #4CAF50; height: 100%; transition: width 0.3s;"></div>
+                            <div class="ml-progress-bar" style="flex: 1;">
+                                <div class="ml-progress-fill" style="width: 0%;"></div>
                             </div>
-                            <button class="cancel-download-btn" data-download-id="${downloadId}"
-                                style="padding: 4px 10px; background: #f44336; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 500;">
+                            <button class="cancel-download-btn ml-btn ml-btn-danger ml-btn-sm" data-download-id="${downloadId}">
                                 Cancel
                             </button>
                         </div>
-                        <div style="font-size: 12px; color: #2196F3;">Downloading...</div>
+                        <div class="ml-progress-text">
+                            <span style="color: #2196F3;">Downloading...</span>
+                        </div>
                     </div>
                 `;
                 
@@ -352,29 +867,48 @@ class LinkerManagerDialog extends ComfyDialog {
         
         // Check if there are active downloads
         const activeCount = Object.keys(this.activeDownloads).length;
+        
+        // Check if any model has a 100% confidence match
+        const hasAny100Match = missingModels.some(m => 
+            (m.matches || []).some(match => match.confidence === 100)
+        );
+        
+        // Show/hide Auto-Link button based on whether 100% matches exist
+        if (this.autoResolveButton) {
+            this.autoResolveButton.style.display = hasAny100Match ? 'inline-flex' : 'none';
+        }
+        
+        // Hide download all button if no missing models
+        if (this.downloadAllButton) {
+            this.downloadAllButton.style.display = totalMissing > 0 ? 'inline-flex' : 'none';
+        }
 
         if (totalMissing === 0 && activeCount === 0) {
-            container.innerHTML = '<p style="color: green;">✓ No missing models found. All models are available!</p>';
+            container.innerHTML = this.renderStatusMessage('All models are available! No missing models found.', 'success');
             return;
         }
         
         // If no missing models but downloads are active, show a waiting message
         if (totalMissing === 0 && activeCount > 0) {
-            container.innerHTML = `
-                <div style="padding: 16px; background: rgba(33, 150, 243, 0.1); border-radius: 8px; margin-bottom: 16px;">
-                    <p style="color: #2196F3; margin: 0;">
-                        <strong>ℹ ${activeCount} download${activeCount > 1 ? 's' : ''} in progress...</strong>
-                    </p>
-                    <p style="color: #888; margin: 8px 0 0 0; font-size: 13px;">
-                        Models will be automatically linked when downloads complete.
-                    </p>
-                </div>
-            `;
+            container.innerHTML = this.renderStatusMessage(
+                `${activeCount} download${activeCount > 1 ? 's' : ''} in progress. Models will be auto-linked when complete.`,
+                'info'
+            );
             return;
         }
 
-        let html = `<p><strong>Found ${totalMissing} missing model(s):</strong></p>`;
-        html += '<div style="display: flex; flex-direction: column; gap: 16px;">';
+        // Summary header with count
+        let html = `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--ml-border);">
+                <div>
+                    <span style="font-size: 15px; font-weight: 600; color: var(--ml-text);">
+                        ${totalMissing} Missing Model${totalMissing > 1 ? 's' : ''}
+                    </span>
+                    ${activeCount > 0 ? `<span style="margin-left: 12px; color: var(--ml-text-muted); font-size: 12px;">${activeCount} downloading</span>` : ''}
+                </div>
+            </div>
+        `;
+        html += '<div style="display: flex; flex-direction: column; gap: 8px;">';
 
         // Sort missing models: those with 100% confidence matches first, then others
         const sortedMissingModels = missingModels.sort((a, b) => {
@@ -475,34 +1009,47 @@ class LinkerManagerDialog extends ComfyDialog {
         // Calculate 100% matches upfront (needed for download section)
         const perfectMatches = filteredMatches.filter(m => m.confidence === 100);
         const otherMatches = filteredMatches.filter(m => m.confidence < 100 && m.confidence >= 70);
-
-        let html = `<div style="border: 1px solid var(--border-color, #444); padding: 12px; border-radius: 4px;">`;
         
-        // Display subgraph name as primary identifier if available, otherwise show node type
-        // A node type that's a UUID indicates it's a subgraph instance
+        // Format the missing filename for display
+        const missingFilename = this.formatFilename(missing.original_path, 60);
+        
+        // Determine node info for the chip
         const isSubgraphNode = missing.node_type && missing.node_type.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
-        
+        let nodeLabel;
         if (missing.subgraph_name) {
-            // Show subgraph name as primary identifier
-            html += `<div style="margin-bottom: 8px;"><strong>Subgraph:</strong> ${missing.subgraph_name} (ID: ${missing.node_id})</div>`;
+            nodeLabel = missing.subgraph_name;
         } else if (isSubgraphNode) {
-            // Node type is a UUID (subgraph) but we don't have the name (shouldn't happen, but handle gracefully)
-            html += `<div style="margin-bottom: 8px;"><strong>Node:</strong> <em>Subgraph</em> (ID: ${missing.node_id})</div>`;
+            nodeLabel = 'Subgraph';
         } else {
-            // Regular node
-            html += `<div style="margin-bottom: 8px;"><strong>Node:</strong> ${missing.node_type} (ID: ${missing.node_id})</div>`;
+            nodeLabel = missing.node_type || 'Node';
         }
-        html += `<div style="margin-bottom: 8px;"><strong>Missing Model:</strong> <code>${missing.original_path}</code></div>`;
-        html += `<div style="margin-bottom: 8px;"><strong>Category:</strong> ${missing.category || 'unknown'}</div>`;
-
+        
+        // Start card
+        let html = `<div class="ml-card">`;
+        
+        // Card Header: Filename as headline + node chip
+        html += `<div class="ml-card-header">`;
+        html += `<h3 class="ml-card-title" title="${missingFilename.full}">${missingFilename.display}</h3>`;
+        html += `<div style="display: flex; align-items: center; gap: 6px;">`;
+        if (missing.category) {
+            html += `<span class="ml-category-chip">${missing.category}</span>`;
+        }
+        html += `<span class="ml-node-chip">${nodeLabel} #${missing.node_id}</span>`;
+        html += `</div>`;
+        html += `</div>`;
+        
+        // Two-column layout
+        html += `<div class="ml-columns">`;
+        
+        // LEFT COLUMN: Local Matches
+        html += `<div class="ml-column">`;
+        html += `<div class="ml-column-header">Local Matches</div>`;
+        
         if (hasMatches) {
             // If we have 100% matches, only show those. Otherwise, show other matches sorted by confidence
             const matchesToShow = perfectMatches.length > 0 
                 ? perfectMatches 
                 : otherMatches.sort((a, b) => b.confidence - a.confidence).slice(0, 5);
-            
-            html += `<div style="margin-top: 12px;"><strong>Suggested Matches:</strong></div>`;
-            html += '<ul style="margin: 8px 0; padding-left: 20px;">';
             
             // Sort: 100% matches first, then by confidence descending
             const sortedMatches = matchesToShow.sort((a, b) => {
@@ -514,114 +1061,98 @@ class LinkerManagerDialog extends ComfyDialog {
             for (let matchIndex = 0; matchIndex < sortedMatches.length; matchIndex++) {
                 const match = sortedMatches[matchIndex];
                 const buttonId = `resolve-${missing.node_id}-${missing.widget_index}-${matchIndex}`;
-                html += `<li style="margin: 4px 0;">`;
-                html += `<code>${match.model?.relative_path || match.filename}</code> `;
-                html += `<span style="color: ${match.confidence === 100 ? 'green' : 'orange'};">
-                    (${match.confidence}% confidence)
-                </span>`;
-                // Show resolve button for all matches (100% or < 100%)
-                html += ` <button id="${buttonId}" 
-                    class="model-linker-resolve-btn" style="margin-left: 8px; padding: 4px 8px;">
-                    Resolve
-                </button>`;
-                html += `</li>`;
+                const matchPath = match.model?.relative_path || match.filename || '';
+                const formattedPath = this.formatPath(matchPath, 45);
+                const isBestMatch = matchIndex === 0 && match.confidence >= 95;
+                
+                html += `<div class="ml-match-row ${isBestMatch ? 'ml-best-match' : ''}">`;
+                html += this.getConfidenceBadge(match.confidence);
+                html += `<span class="ml-match-filename" title="${formattedPath.full}">${formattedPath.display}</span>`;
+                html += `<button id="${buttonId}" class="ml-btn ${isBestMatch ? 'ml-btn-primary' : 'ml-btn-secondary'} ml-btn-sm">`;
+                html += `<span class="ml-btn-icon">🔗</span> Link`;
+                html += `</button>`;
+                html += `</div>`;
             }
-            
-            html += '</ul>';
             
             // Add note if only showing 100% matches
             if (perfectMatches.length > 0 && otherMatches.length > 0) {
-                html += `<div style="color: #888; font-size: 12px; margin-top: 8px; font-style: italic;">Showing only 100% confidence matches. ${otherMatches.length} other match${otherMatches.length > 1 ? 'es' : ''} available.</div>`;
+                html += `<div class="ml-no-matches">${otherMatches.length} other match${otherMatches.length > 1 ? 'es' : ''} below 100%</div>`;
             }
         } else if (allMatches.length > 0 && filteredMatches.length === 0) {
-            // Had matches but all were below 70% threshold
-            html += `<div style="color: orange; margin-top: 8px;">No local matches found above 70% confidence threshold.</div>`;
+            html += `<div class="ml-no-matches">No matches above 70% confidence</div>`;
         } else {
-            html += `<div style="color: orange; margin-top: 8px;">No local matches found.</div>`;
+            html += `<div class="ml-no-matches">No local matches found</div>`;
         }
-
-        // Show download option when no 100% local match exists
+        
+        html += `</div>`; // End left column
+        
+        // RIGHT COLUMN: Download Option
+        html += `<div class="ml-column">`;
+        html += `<div class="ml-column-header">Download</div>`;
+        
         const filename = missing.original_path?.split('/').pop()?.split('\\').pop() || '';
         const downloadSource = missing.download_source;
         
-        // Always show download/search when there's no perfect local match
-        if (perfectMatches.length === 0) {
-            html += `<div style="margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border-color, #444);">`;
+        if (perfectMatches.length > 0) {
+            // Has perfect local match - download not needed
+            html += `<div class="ml-no-matches">Not needed - exact local match available</div>`;
+        } else if (downloadSource && downloadSource.url) {
+            // We have a known download URL
+            const isExact = downloadSource.match_type === 'exact' || downloadSource.source === 'popular' || downloadSource.source === 'huggingface' || downloadSource.source === 'civitai';
+            const isFromWorkflow = downloadSource.url_source === 'workflow';
+            const sourceLabels = {
+                'popular': 'Popular Models',
+                'model_list': 'Model Database',
+                'huggingface': 'HuggingFace',
+                'civitai': 'CivitAI',
+                'workflow': 'Workflow'
+            };
+            const sourceLabel = isFromWorkflow ? 'Workflow' : (sourceLabels[downloadSource.source] || 'Online');
+            const downloadFilename = downloadSource.filename || filename;
+            const formattedDownloadName = this.formatFilename(downloadFilename, 45);
             
-            if (downloadSource && downloadSource.url) {
-                // We have a known download URL - show Download button
-                const isExact = downloadSource.match_type === 'exact' || downloadSource.source === 'popular' || downloadSource.source === 'huggingface' || downloadSource.source === 'civitai';
-                const isFromWorkflow = downloadSource.url_source === 'workflow';
-                const confidence = downloadSource.confidence ? ` (${downloadSource.confidence}% match)` : '';
-                const sourceLabels = {
-                    'popular': 'Popular Models',
-                    'model_list': 'Model Database',
-                    'huggingface': 'HuggingFace',
-                    'civitai': 'CivitAI',
-                    'workflow': 'Workflow'
-                };
-                // If URL is from workflow, show that as primary source
-                const sourceLabel = isFromWorkflow ? 'Workflow' : (sourceLabels[downloadSource.source] || 'Online');
-                const downloadFilename = downloadSource.filename || filename;
-                const modelName = downloadSource.name ? ` (${downloadSource.name})` : '';
-                // Format file size - if it's a number (bytes), format it nicely
-                let sizeDisplay = '';
-                if (downloadSource.size) {
-                    if (typeof downloadSource.size === 'number') {
-                        sizeDisplay = this.formatBytes(downloadSource.size);
-                    } else {
-                        sizeDisplay = downloadSource.size;
-                    }
-                }
-                
-                html += `<div style="display: flex; align-items: flex-start; gap: 12px;">`;
-                html += `<button id="download-${missing.node_id}-${missing.widget_index}" 
-                    class="model-linker-download-btn" 
-                    style="padding: 8px 16px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 500;">
-                    Download
-                </button>`;
-                html += `<div style="flex: 1; font-size: 12px;">`;
-                html += `<div style="color: ${isExact ? '#4CAF50' : '#9C27B0'};">`;
-                if (isFromWorkflow) {
-                    html += `✓ URL embedded in workflow`;
+            // Format file size
+            let sizeDisplay = '';
+            if (downloadSource.size) {
+                if (typeof downloadSource.size === 'number') {
+                    sizeDisplay = this.formatBytes(downloadSource.size);
                 } else {
-                    html += isExact ? `✓ Found on ${sourceLabel}` : `~ Similar model found${confidence}`;
+                    sizeDisplay = downloadSource.size;
                 }
-                html += `</div>`;
-                html += `<div style="color: #888; margin-top: 2px;">`;
-                // Make filename a clickable link to model card if we can extract it
-                const modelCardUrl = this.getModelCardUrl(downloadSource.url);
-                if (modelCardUrl) {
-                    html += `<a href="${modelCardUrl}" target="_blank" rel="noopener noreferrer" 
-                        style="color: #8ab4f8; text-decoration: none;" 
-                        onmouseover="this.style.textDecoration='underline'" 
-                        onmouseout="this.style.textDecoration='none'"
-                        title="Open model card"><code>${downloadFilename}</code></a>`;
-                } else {
-                    html += `<code>${downloadFilename}</code>`;
-                }
-                html += `${modelName}`;
-                if (sizeDisplay) {
-                    html += ` <span style="color: #aaa; font-weight: 500;">[${sizeDisplay}]</span>`;
-                }
-                html += `</div>`;
-                html += `</div>`;
-                html += `</div>`;
-            } else {
-                // No known download - offer search
-                html += `<button id="search-${missing.node_id}-${missing.widget_index}" 
-                    class="model-linker-search-btn" 
-                    style="padding: 6px 12px; background: #2196F3; color: white; border: none; border-radius: 4px; cursor: pointer;">
-                    🔍 Search Online
-                </button>`;
-                html += `<div id="search-results-${missing.node_id}-${missing.widget_index}" style="margin-top: 8px; display: none;"></div>`;
             }
             
-            html += `<div id="download-progress-${missing.node_id}-${missing.widget_index}" style="margin-top: 8px; display: none;"></div>`;
+            html += `<div class="ml-download-section">`;
+            html += `<button id="download-${missing.node_id}-${missing.widget_index}" class="ml-btn ml-btn-download">`;
+            html += `<span class="ml-btn-icon">☁</span> Download${sizeDisplay ? ` (${sizeDisplay})` : ''}`;
+            html += `</button>`;
+            html += `<div class="ml-download-info">`;
+            html += `<span class="ml-download-source">${isFromWorkflow ? 'URL from workflow' : sourceLabel}</span>`;
+            const modelCardUrl = this.getModelCardUrl(downloadSource.url);
+            if (modelCardUrl) {
+                html += `<br><a href="${modelCardUrl}" target="_blank" rel="noopener noreferrer" class="ml-link" title="Open model card">${formattedDownloadName.display}</a>`;
+            } else {
+                html += `<br><span title="${formattedDownloadName.full}">${formattedDownloadName.display}</span>`;
+            }
             html += `</div>`;
+            html += `</div>`;
+        } else {
+            // No known download - offer search
+            html += `<div class="ml-download-section">`;
+            html += `<button id="search-${missing.node_id}-${missing.widget_index}" class="ml-btn ml-btn-link">`;
+            html += `<span class="ml-btn-icon">🔍</span> Search Online`;
+            html += `</button>`;
+            html += `<div class="ml-download-info">Search HuggingFace & CivitAI</div>`;
+            html += `</div>`;
+            html += `<div id="search-results-${missing.node_id}-${missing.widget_index}" style="margin-top: 8px; display: none;"></div>`;
         }
-
-        html += '</div>';
+        
+        // Progress container (for downloads)
+        html += `<div id="download-progress-${missing.node_id}-${missing.widget_index}" style="margin-top: 8px; display: none;"></div>`;
+        
+        html += `</div>`; // End right column
+        html += `</div>`; // End columns
+        
+        html += `</div>`; // End card
         return html;
     }
 
@@ -823,15 +1354,14 @@ class LinkerManagerDialog extends ComfyDialog {
 
     /**
      * Auto-resolve all 100% confidence matches
+     * @returns {object|null} The updated workflow if successful, null otherwise
      */
     async autoResolve100Percent() {
-        if (!this.contentElement) return;
-
         try {
             const workflow = this.getCurrentWorkflow();
             if (!workflow) {
                 this.showNotification('No workflow loaded', 'error');
-                return;
+                return null;
             }
 
             // Analyze workflow first
@@ -869,7 +1399,7 @@ class LinkerManagerDialog extends ComfyDialog {
 
             if (resolutions.length === 0) {
                 this.showNotification('No 100% confidence matches found to auto-resolve.', 'error');
-                return;
+                return null;
             }
 
             // Apply resolutions
@@ -898,16 +1428,22 @@ class LinkerManagerDialog extends ComfyDialog {
                     'success'
                 );
                 
-                // Reload dialog using the updated workflow from API response
-                // This ensures we're analyzing the correct updated workflow
-                await this.loadWorkflowData(resolveData.workflow);
+                // Reload dialog using the updated workflow from API response (if dialog is visible)
+                if (this.contentElement) {
+                    await this.loadWorkflowData(resolveData.workflow);
+                }
+                
+                // Return the updated workflow for callers who need it
+                return resolveData.workflow;
             } else {
                 this.showNotification('Failed to resolve models: ' + (resolveData.error || 'Unknown error'), 'error');
+                return null;
             }
 
         } catch (error) {
             console.error('Model Linker: Error auto-resolving:', error);
             this.showNotification('Error auto-resolving: ' + error.message, 'error');
+            return null;
         }
     }
 
@@ -1096,19 +1632,20 @@ class LinkerManagerDialog extends ComfyDialog {
             }
             if (progressDiv) {
                 progressDiv.style.display = 'block';
-                // Show progress bar with cancel button immediately (like WMD)
+                // Show progress bar with cancel button immediately
                 progressDiv.innerHTML = `
-                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                    <div class="ml-progress-container">
                         <div style="display: flex; align-items: center; gap: 8px;">
-                            <div style="flex: 1; background: #333; border-radius: 4px; height: 8px; overflow: hidden;">
-                                <div style="width: 0%; background: #4CAF50; height: 100%; transition: width 0.3s;"></div>
+                            <div class="ml-progress-bar" style="flex: 1;">
+                                <div class="ml-progress-fill" style="width: 0%;"></div>
                             </div>
-                            <button class="cancel-download-btn-pending"
-                                style="padding: 4px 10px; background: #f44336; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 500;">
+                            <button class="cancel-download-btn-pending ml-btn ml-btn-danger ml-btn-sm">
                                 Cancel
                             </button>
                         </div>
-                        <div style="font-size: 12px; color: #2196F3;">Connecting...</div>
+                        <div class="ml-progress-text">
+                            <span style="color: #2196F3;">Connecting...</span>
+                        </div>
                     </div>
                 `;
             }
@@ -1151,11 +1688,11 @@ class LinkerManagerDialog extends ComfyDialog {
         } catch (error) {
             console.error('Model Linker: Download error:', error);
             if (progressDiv) {
-                progressDiv.innerHTML = `<span style="color: #f44336;">Error: ${error.message}</span>`;
+                progressDiv.innerHTML = this.renderStatusMessage(error.message, 'error');
             }
             if (downloadBtn) {
                 downloadBtn.disabled = false;
-                downloadBtn.textContent = 'Retry Download';
+                downloadBtn.innerHTML = '<span class="ml-btn-icon">☁</span> Retry';
             }
             this.showNotification('Download failed: ' + error.message, 'error');
         }
@@ -1183,25 +1720,21 @@ class LinkerManagerDialog extends ComfyDialog {
                 const total = this.formatBytes(progress.total_size || 0);
                 const speed = progress.speed ? this.formatBytes(progress.speed) + '/s' : '';
                 
-                // Format: "1.2 GB / 4.5 GB (27%) - 45.2 MB/s" (like WMD)
-                let progressText = `${downloaded} / ${total} (${percent}%)`;
-                if (speed) {
-                    progressText += ` - ${speed}`;
-                }
-                
                 if (progressDiv) {
                     progressDiv.innerHTML = `
-                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <div class="ml-progress-container">
                             <div style="display: flex; align-items: center; gap: 8px;">
-                                <div style="flex: 1; background: #333; border-radius: 4px; height: 8px; overflow: hidden;">
-                                    <div style="width: ${percent}%; background: #4CAF50; height: 100%; transition: width 0.3s;"></div>
+                                <div class="ml-progress-bar" style="flex: 1;">
+                                    <div class="ml-progress-fill" style="width: ${percent}%;"></div>
                                 </div>
-                                <button class="cancel-download-btn" data-download-id="${downloadId}"
-                                    style="padding: 4px 10px; background: #f44336; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 500;">
+                                <button class="cancel-download-btn ml-btn ml-btn-danger ml-btn-sm" data-download-id="${downloadId}">
                                     Cancel
                                 </button>
                             </div>
-                            <div style="font-size: 12px; color: #aaa;">${progressText}</div>
+                            <div class="ml-progress-text">
+                                <span>${downloaded} / ${total} (${percent}%)</span>
+                                <span>${speed}</span>
+                            </div>
                         </div>
                     `;
                     // Attach cancel handler
@@ -1220,11 +1753,11 @@ class LinkerManagerDialog extends ComfyDialog {
 
             } else if (progress.status === 'completed') {
                 if (progressDiv) {
-                    progressDiv.innerHTML = '<span style="color: #4CAF50;">✓ Download complete! Resolving...</span>';
+                    progressDiv.innerHTML = this.renderStatusMessage('Download complete! Auto-linking...', 'success');
                 }
                 if (downloadBtn) {
-                    downloadBtn.textContent = '✓ Downloaded';
-                    downloadBtn.style.background = '#4CAF50';
+                    downloadBtn.textContent = '✓ Done';
+                    downloadBtn.classList.add('ml-btn-primary');
                 }
                 delete this.activeDownloads[downloadId];
                 this.updateDownloadAllButtonState();
@@ -1238,7 +1771,7 @@ class LinkerManagerDialog extends ComfyDialog {
 
             } else if (progress.status === 'error') {
                 if (progressDiv) {
-                    progressDiv.innerHTML = `<span style="color: #f44336;">Error: ${progress.error || 'Unknown error'}</span>`;
+                    progressDiv.innerHTML = this.renderStatusMessage(progress.error || 'Download failed', 'error');
                 }
                 if (downloadBtn) {
                     downloadBtn.disabled = false;
@@ -1249,12 +1782,11 @@ class LinkerManagerDialog extends ComfyDialog {
 
             } else if (progress.status === 'cancelled') {
                 if (progressDiv) {
-                    progressDiv.innerHTML = '<span style="color: orange;">Download cancelled - incomplete file removed</span>';
+                    progressDiv.innerHTML = this.renderStatusMessage('Download cancelled - incomplete file removed', 'warning');
                 }
                 if (downloadBtn) {
                     downloadBtn.disabled = false;
-                    downloadBtn.textContent = 'Download';
-                    downloadBtn.style.background = '#4CAF50';  // Reset to green
+                    downloadBtn.innerHTML = '<span class="ml-btn-icon">☁</span> Download';
                 }
                 delete this.activeDownloads[downloadId];
                 this.updateDownloadAllButtonState();
@@ -1272,7 +1804,7 @@ class LinkerManagerDialog extends ComfyDialog {
             if (info) {
                 const { progressDiv, downloadBtn } = info;
                 if (progressDiv) {
-                    progressDiv.innerHTML = '<span style="color: #f44336;">Connection lost - download may have been cancelled</span>';
+                    progressDiv.innerHTML = this.renderStatusMessage('Connection lost - download may have failed', 'error');
                 }
                 if (downloadBtn) {
                     downloadBtn.disabled = false;
@@ -1300,7 +1832,7 @@ class LinkerManagerDialog extends ComfyDialog {
             
             const info = this.activeDownloads[downloadId];
             if (info?.progressDiv) {
-                info.progressDiv.innerHTML = '<span style="color: orange;">Cancelling...</span>';
+                info.progressDiv.innerHTML = this.renderStatusMessage('Cancelling download...', 'info');
             }
             
         } catch (error) {
@@ -1345,12 +1877,12 @@ class LinkerManagerDialog extends ComfyDialog {
         } catch (error) {
             console.error('Model Linker: Search error:', error);
             if (resultsDiv) {
-                resultsDiv.innerHTML = `<span style="color: #f44336;">Search failed: ${error.message}</span>`;
+                resultsDiv.innerHTML = this.renderStatusMessage(`Search failed: ${error.message}`, 'error');
             }
         } finally {
             if (searchBtn) {
                 searchBtn.disabled = false;
-                searchBtn.textContent = '🔍 Search Again';
+                searchBtn.innerHTML = '<span class="ml-btn-icon">🔍</span> Search Again';
             }
         }
     }
@@ -1362,85 +1894,81 @@ class LinkerManagerDialog extends ComfyDialog {
         if (!container) return;
 
         const popular = data.popular;
-        const hfResults = data.huggingface || [];
-        const civitaiResults = data.civitai || [];
-        const hasResults = popular || hfResults.length > 0 || civitaiResults.length > 0;
+        const modelListResult = data.model_list;
+        const hfResult = data.huggingface?.[0];
+        const civitaiResult = data.civitai?.[0];
+        const hasResults = popular || modelListResult || hfResult || civitaiResult;
 
-        if (!found) {
-            container.innerHTML = '<span style="color: orange;">No match found online for this model.</span>';
+        if (!hasResults) {
+            container.innerHTML = this.renderStatusMessage('No matches found online for this model.', 'warning');
             return;
         }
 
-        let html = '<div style="margin-top: 8px;">';
+        let html = '<div style="margin-top: 8px; display: flex; flex-direction: column; gap: 8px;">';
 
         // Popular models result (highest priority)
         if (popular) {
-            html += `<div style="margin-bottom: 8px; padding: 8px; background: rgba(76, 175, 80, 0.1); border-radius: 4px;">`;
-            html += `<strong style="color: #4CAF50;">✓ Found in Popular Models:</strong>`;
-            html += `<div style="margin-top: 4px;">`;
-            html += `<button class="search-download-btn" data-url="${popular.url}" data-filename="${popular.filename || missing.original_path?.split('/').pop()?.split('\\').pop()}" data-category="${popular.directory || missing.category}" 
-                style="padding: 4px 8px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">
-                Download
-            </button>`;
+            html += `<div class="ml-status ml-status-success" style="flex-direction: column; align-items: flex-start;">`;
+            html += `<strong>Found in Popular Models</strong>`;
+            html += `<div style="margin-top: 8px;">`;
+            html += `<button class="search-download-btn ml-btn ml-btn-primary ml-btn-sm" data-url="${popular.url}" data-filename="${popular.filename || missing.original_path?.split('/').pop()?.split('\\').pop()}" data-category="${popular.directory || missing.category}">`;
+            html += `<span class="ml-btn-icon">☁</span> Download`;
+            html += `</button>`;
             html += `</div></div>`;
         }
 
         // Model list result (ComfyUI Manager database with fuzzy matching)
         if (modelListResult && modelListResult.url) {
-            const confidence = modelListResult.confidence ? ` (${modelListResult.confidence}% match)` : '';
-            const matchType = modelListResult.match_type === 'exact' ? '✓ Exact match' : '~ Similar model';
-            const bgColor = modelListResult.match_type === 'exact' ? 'rgba(76, 175, 80, 0.1)' : 'rgba(156, 39, 176, 0.1)';
-            const textColor = modelListResult.match_type === 'exact' ? '#4CAF50' : '#9C27B0';
+            const confidence = modelListResult.confidence ? ` (${modelListResult.confidence}%)` : '';
+            const matchType = modelListResult.match_type === 'exact' ? 'Exact match' : 'Similar model';
+            const statusClass = modelListResult.match_type === 'exact' ? 'ml-status-success' : 'ml-status-info';
             
-            html += `<div style="margin-bottom: 8px; padding: 8px; background: ${bgColor}; border-radius: 4px;">`;
-            html += `<strong style="color: ${textColor};">${matchType} in Model Database${confidence}:</strong>`;
+            html += `<div class="ml-status ${statusClass}" style="flex-direction: column; align-items: flex-start;">`;
+            html += `<strong>${matchType} in Model Database${confidence}</strong>`;
             html += `<div style="margin-top: 4px; font-size: 12px;">`;
-            html += `<code>${modelListResult.filename}</code>`;
+            html += `<span class="ml-chip">${modelListResult.filename}</span>`;
             if (modelListResult.name) {
-                html += ` <span style="color: #888;">(${modelListResult.name})</span>`;
+                html += ` <span style="color: var(--ml-text-muted);">${modelListResult.name}</span>`;
             }
             if (modelListResult.size) {
-                html += ` <span style="color: #666; font-size: 11px;">[${modelListResult.size}]</span>`;
+                html += ` <span class="ml-download-size">[${modelListResult.size}]</span>`;
             }
             html += `</div>`;
             html += `<div style="margin-top: 8px;">`;
-            html += `<button class="search-download-btn" data-url="${modelListResult.url}" data-filename="${modelListResult.filename}" data-category="${modelListResult.directory || missing.category}"
-                style="padding: 4px 8px; background: ${textColor}; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">
-                Download
-            </button>`;
+            html += `<button class="search-download-btn ml-btn ml-btn-primary ml-btn-sm" data-url="${modelListResult.url}" data-filename="${modelListResult.filename}" data-category="${modelListResult.directory || missing.category}">`;
+            html += `<span class="ml-btn-icon">☁</span> Download`;
+            html += `</button>`;
             html += `</div></div>`;
         }
 
         // HuggingFace result
         if (hfResult && hfResult.url) {
             const hfRepo = hfResult.repo_id || hfResult.repo || '';
-            html += `<div style="margin-bottom: 8px; padding: 8px; background: rgba(33, 150, 243, 0.1); border-radius: 4px;">`;
-            html += `<strong style="color: #2196F3;">✓ Found on HuggingFace:</strong>`;
+            html += `<div class="ml-status ml-status-info" style="flex-direction: column; align-items: flex-start;">`;
+            html += `<strong>Found on HuggingFace</strong>`;
             html += `<div style="margin-top: 4px; font-size: 12px;">`;
-            html += `<code>${hfResult.filename}</code> `;
-            html += `<span style="color: #888;">(${hfRepo})</span>`;
+            html += `<span class="ml-chip">${hfResult.filename}</span> `;
+            html += `<span style="color: var(--ml-text-muted);">${hfRepo}</span>`;
             html += `</div>`;
             html += `<div style="margin-top: 8px;">`;
-            html += `<button class="search-download-btn" data-url="${hfResult.url}" data-filename="${hfResult.filename}" data-category="${missing.category}"
-                style="padding: 4px 8px; background: #2196F3; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">
-                Download
-            </button>`;
+            html += `<button class="search-download-btn ml-btn ml-btn-link ml-btn-sm" data-url="${hfResult.url}" data-filename="${hfResult.filename}" data-category="${missing.category}">`;
+            html += `<span class="ml-btn-icon">☁</span> Download`;
+            html += `</button>`;
             html += `</div></div>`;
         }
 
         // CivitAI result
         if (civitaiResult && civitaiResult.download_url) {
-            html += `<div style="margin-bottom: 8px; padding: 8px; background: rgba(255, 152, 0, 0.1); border-radius: 4px;">`;
-            html += `<strong style="color: #FF9800;">✓ Found on CivitAI:</strong>`;
+            html += `<div class="ml-status ml-status-warning" style="flex-direction: column; align-items: flex-start;">`;
+            html += `<strong>Found on CivitAI</strong>`;
             html += `<div style="margin-top: 4px; font-size: 12px;">`;
-            html += `<code>${civitaiResult.filename || civitaiResult.name}</code> `;
-            html += `<span style="color: #888;">(${civitaiResult.type || civitaiResult.name})</span>`;
+            html += `<span class="ml-chip">${civitaiResult.filename || civitaiResult.name}</span> `;
+            html += `<span style="color: var(--ml-text-muted);">${civitaiResult.type || civitaiResult.name}</span>`;
             html += `</div>`;
             html += `<div style="margin-top: 8px;">`;
-            html += `<button class="search-download-btn" data-url="${civitaiResult.download_url}" data-filename="${civitaiResult.filename || civitaiResult.name + '.safetensors'}" data-category="${missing.category}"
-                style="padding: 4px 8px; background: #FF9800; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">
-                Download
-            </button>`;
+            html += `<button class="search-download-btn ml-btn ml-btn-sm" style="background: #FF9800;" data-url="${civitaiResult.download_url}" data-filename="${civitaiResult.filename || civitaiResult.name + '.safetensors'}" data-category="${missing.category}">`;
+            html += `<span class="ml-btn-icon">☁</span> Download`;
+            html += `</button>`;
             html += `</div></div>`;
         }
 
@@ -1472,19 +2000,20 @@ class LinkerManagerDialog extends ComfyDialog {
             
             if (progressDiv) {
                 progressDiv.style.display = 'block';
-                // Show progress bar with cancel button immediately (like WMD)
+                // Show progress bar with cancel button immediately
                 progressDiv.innerHTML = `
-                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                    <div class="ml-progress-container">
                         <div style="display: flex; align-items: center; gap: 8px;">
-                            <div style="flex: 1; background: #333; border-radius: 4px; height: 8px; overflow: hidden;">
-                                <div style="width: 0%; background: #4CAF50; height: 100%; transition: width 0.3s;"></div>
+                            <div class="ml-progress-bar" style="flex: 1;">
+                                <div class="ml-progress-fill" style="width: 0%;"></div>
                             </div>
-                            <button class="cancel-download-btn-pending"
-                                style="padding: 4px 10px; background: #f44336; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 500;">
+                            <button class="cancel-download-btn-pending ml-btn ml-btn-danger ml-btn-sm">
                                 Cancel
                             </button>
                         </div>
-                        <div style="font-size: 12px; color: #2196F3;">Connecting...</div>
+                        <div class="ml-progress-text">
+                            <span style="color: #2196F3;">Connecting...</span>
+                        </div>
                     </div>
                 `;
             }
@@ -1522,7 +2051,7 @@ class LinkerManagerDialog extends ComfyDialog {
         } catch (error) {
             console.error('Model Linker: Download error:', error);
             if (progressDiv) {
-                progressDiv.innerHTML = `<span style="color: #f44336;">Error: ${error.message}</span>`;
+                progressDiv.innerHTML = this.renderStatusMessage(error.message, 'error');
             }
             btn.disabled = false;
             btn.textContent = 'Retry';
@@ -1733,20 +2262,11 @@ class ModelLinker {
         // Check if we already injected buttons
         if (dialog.querySelector('#model-linker-btn-container')) return;
 
-        // Find a suitable place to inject the buttons
+        // Find a suitable place to inject the button
         const injectButtons = () => {
-            // Create container for our buttons
-            const btnContainer = document.createElement('div');
-            btnContainer.id = 'model-linker-btn-container';
-            btnContainer.style.cssText = `
-                display: flex;
-                gap: 8px;
-                margin: 12px 16px;
-            `;
-
             // Common button style
             const btnStyle = `
-                padding: 8px 14px;
+                padding: 6px 12px;
                 color: white;
                 border: none;
                 border-radius: 6px;
@@ -1757,59 +2277,53 @@ class ModelLinker {
                 white-space: nowrap;
             `;
 
-            // Auto-resolve button
+            // Auto-resolve button (green)
             const autoResolveBtn = document.createElement('button');
-            autoResolveBtn.id = 'model-linker-auto-resolve-btn';
+            autoResolveBtn.id = 'model-linker-btn-container'; // Use this ID to prevent duplicate injection
             autoResolveBtn.textContent = '🔗 Auto-resolve 100%';
             autoResolveBtn.title = 'Automatically link models with 100% confidence matches';
-            autoResolveBtn.style.cssText = btnStyle + `background: #2196F3;`;
+            autoResolveBtn.style.cssText = btnStyle + `background: #4CAF50;`;
             
             autoResolveBtn.addEventListener('mouseenter', () => {
-                autoResolveBtn.style.background = '#1976D2';
+                autoResolveBtn.style.background = '#45a049';
             });
             autoResolveBtn.addEventListener('mouseleave', () => {
-                autoResolveBtn.style.background = '#2196F3';
+                autoResolveBtn.style.background = '#4CAF50';
             });
             autoResolveBtn.addEventListener('click', async () => {
                 await this.handleAutoResolveInPopup(dialog, autoResolveBtn);
             });
 
-            // Download missing button
-            const downloadBtn = document.createElement('button');
-            downloadBtn.id = 'model-linker-download-btn';
-            downloadBtn.textContent = '⬇ Download Missing';
-            downloadBtn.title = 'Open Model Linker to download missing models with progress tracking';
-            downloadBtn.style.cssText = btnStyle + `background: #4CAF50;`;
-            
-            downloadBtn.addEventListener('mouseenter', () => {
-                downloadBtn.style.background = '#45a049';
-            });
-            downloadBtn.addEventListener('mouseleave', () => {
-                downloadBtn.style.background = '#4CAF50';
-            });
-            downloadBtn.addEventListener('click', () => {
-                // Close the popup
-                const closeBtn = dialog.querySelector('button[class*="close"]') || 
-                                 dialog.querySelector('svg')?.closest('button') ||
-                                 Array.from(dialog.querySelectorAll('button')).find(b => b.textContent === '×' || b.innerHTML.includes('×'));
-                if (closeBtn) {
-                    closeBtn.click();
+            // Find the "Don't show this again" checkbox row and add button next to it
+            const checkbox = dialog.querySelector('input[type="checkbox"]');
+            if (checkbox) {
+                const checkboxRow = checkbox.closest('label') || checkbox.parentElement;
+                if (checkboxRow && checkboxRow.parentElement) {
+                    // Make the parent a flex container to align checkbox and button
+                    checkboxRow.parentElement.style.cssText = `
+                        display: flex;
+                        align-items: center;
+                        gap: 16px;
+                        padding: 0 16px;
+                        margin-bottom: 8px;
+                    `;
+                    // Insert button at the beginning (left side)
+                    checkboxRow.parentElement.insertBefore(autoResolveBtn, checkboxRow);
+                    return;
                 }
-                // Open Model Linker
-                this.openLinkerManager();
-            });
+            }
 
-            btnContainer.appendChild(autoResolveBtn);
-            btnContainer.appendChild(downloadBtn);
-
-            // Find the list of models (usually a scrollable container with the model items)
+            // Fallback: Find the list of models and insert before it
             const modelList = dialog.querySelector('[style*="overflow"]') || 
                              dialog.querySelector('[class*="list"]') ||
                              dialog.querySelector('[class*="content"]');
             
             if (modelList) {
-                // Insert before the model list
-                modelList.parentElement?.insertBefore(btnContainer, modelList);
+                // Create a wrapper and insert before the model list
+                const wrapper = document.createElement('div');
+                wrapper.style.cssText = 'display: flex; justify-content: flex-end; padding: 0 16px; margin-bottom: 8px;';
+                wrapper.appendChild(autoResolveBtn);
+                modelList.parentElement?.insertBefore(wrapper, modelList);
             } else {
                 // Find after the description text
                 const allElements = dialog.querySelectorAll('*');
@@ -1854,14 +2368,12 @@ class ModelLinker {
             this.dialog = new LinkerManagerDialog();
         }
 
-        // Run auto-resolve for 100% matches
-        await this.dialog.autoResolve100Percent();
-
-        // Small delay then open the Model Linker UI to show remaining models
-        await new Promise(r => setTimeout(r, 300));
+        // Run auto-resolve for 100% matches - returns the updated workflow
+        const updatedWorkflow = await this.dialog.autoResolve100Percent();
         
-        // Open Model Linker to handle remaining unlinked/downloadable models
-        this.openLinkerManager();
+        // Always open Model Linker to show remaining unresolved models
+        // Pass the updated workflow if available to avoid race condition
+        this.dialog.show(updatedWorkflow || null);
     }
 
     /**
