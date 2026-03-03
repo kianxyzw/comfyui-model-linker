@@ -19,6 +19,14 @@ except ImportError:
 # Common model file extensions
 MODEL_EXTENSIONS = {'.ckpt', '.pt', '.pt2', '.bin', '.pth', '.safetensors', '.pkl', '.sft', '.onnx'}
 
+# Node types that should never be scanned for model references.
+# These are note/utility nodes whose widget values may contain model filenames
+# as text content (e.g. markdown links) but are NOT actual model references.
+SKIP_NODE_TYPES = {
+    'MarkdownNote', 'Note', 'NoteNode', 'TextNote',
+    'Reroute', 'PrimitiveNode',
+}
+
 # Mapping of common node types to their expected model category
 # This is used as hints but we don't rely solely on this
 # UNETLoader uses 'diffusion_models' category (folder_paths maps 'unet' to 'diffusion_models')
@@ -32,8 +40,13 @@ NODE_TYPE_TO_CATEGORY_HINTS = {
     'UNETLoader': 'diffusion_models',  # UNETLoader uses diffusion_models category
     'ControlNetLoader': 'controlnet',
     'ControlNetLoaderAdvanced': 'controlnet',
+    'CLIPLoader': 'text_encoders',
+    'DualCLIPLoader': 'text_encoders',
+    'TripleCLIPLoader': 'text_encoders',
     'CLIPVisionLoader': 'clip_vision',
     'UpscaleModelLoader': 'upscale_models',
+    'LatentUpscaleModelLoader': 'latent_upscale_models',
+    'StyleModelLoader': 'style_models',
     'HypernetworkLoader': 'hypernetworks',
     'EmbeddingLoader': 'embeddings',
 }
@@ -107,19 +120,24 @@ def try_resolve_model_path(value: str, categories: List[str] = None) -> Optional
 def get_node_model_info(node: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     Extract model references from a single node.
-    
+
     This scans all widgets_values entries and tries to identify which ones
     are model file references by attempting to resolve them.
-    
+
+    Handles both array and dict formats for widgets_values (newer ComfyUI
+    frontends may serialize widgets_values as an object with named keys).
+
+    Uses properties.models (when available) for accurate category detection.
+
     Args:
         node: Node dictionary from workflow JSON
-        
+
     Returns:
         List of model reference dictionaries:
         {
             'node_id': node id,
             'node_type': node type,
-            'widget_index': index in widgets_values,
+            'widget_index': index in widgets_values (int for array, str for dict),
             'original_path': original path from workflow,
             'category': model category (if found),
             'exists': True if model exists
@@ -128,33 +146,57 @@ def get_node_model_info(node: Dict[str, Any]) -> List[Dict[str, Any]]:
     model_refs = []
     node_id = node.get('id')
     node_type = node.get('type', '')
-    widgets_values = node.get('widgets_values', [])
-    
+
+    # Skip note/markdown/utility node types that don't contain model references
+    if node_type in SKIP_NODE_TYPES:
+        return model_refs
+
+    widgets_values = node.get('widgets_values')
     if not widgets_values:
         return model_refs
-    
+
     # Get category hints for this node type
     category_hint = NODE_TYPE_TO_CATEGORY_HINTS.get(node_type)
-    categories_to_try = [category_hint] if category_hint else None
-    
-    # For each widget value, check if it looks like a model file
-    for idx, value in enumerate(widgets_values):
+
+    # Build per-model category map from properties.models (newer ComfyUI feature)
+    # This provides reliable category info for each model the node expects
+    properties_models = (node.get('properties') or {}).get('models') or []
+    model_category_map: Dict[str, str] = {}
+    for pm in properties_models:
+        name = pm.get('name', '')
+        directory = pm.get('directory', '')
+        if name and directory:
+            model_category_map[name] = directory
+
+    # Handle both array and dict format for widgets_values
+    if isinstance(widgets_values, dict):
+        items = list(widgets_values.items())  # [(key, value), ...]
+    elif isinstance(widgets_values, (list, tuple)):
+        items = list(enumerate(widgets_values))  # [(index, value), ...]
+    else:
+        return model_refs
+
+    for idx, value in items:
         if not is_model_filename(value):
             continue
-        
+
+        # Determine best category: properties.models > node type hint > all categories
+        value_category = model_category_map.get(value) or category_hint
+        categories_to_try = [value_category] if value_category else None
+
         # Try to resolve the model path
         resolved = try_resolve_model_path(value, categories_to_try)
-        
+
         if resolved:
             category, full_path = resolved
             exists = os.path.exists(full_path)
         else:
             # If we can't resolve it, check if it at least looks like a model filename
             # This might be a missing model or a custom node's model
-            category = category_hint or 'unknown'
+            category = value_category or 'unknown'
             full_path = None
             exists = False
-        
+
         model_refs.append({
             'node_id': node_id,
             'node_type': node_type,
@@ -164,7 +206,7 @@ def get_node_model_info(node: Dict[str, Any]) -> List[Dict[str, Any]]:
             'full_path': full_path,
             'exists': exists
         })
-    
+
     return model_refs
 
 

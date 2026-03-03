@@ -194,9 +194,18 @@ def update_model_path(
         return False
     
     widgets_values = node.get('widgets_values', [])
-    
-    if widget_index >= len(widgets_values):
-        logging.warning(f"Widget index {widget_index} out of range for node {node_id}")
+
+    # Handle both array and dict format for widgets_values
+    if isinstance(widgets_values, dict):
+        if widget_index not in widgets_values:
+            logging.warning(f"Widget key {widget_index!r} not found in node {node_id}")
+            return False
+    elif isinstance(widgets_values, (list, tuple)):
+        if not isinstance(widget_index, int) or widget_index >= len(widgets_values):
+            logging.warning(f"Widget index {widget_index} out of range for node {node_id}")
+            return False
+    else:
+        logging.warning(f"Unexpected widgets_values type {type(widgets_values).__name__} for node {node_id}")
         return False
     
     # Get category from resolved_model if not provided
