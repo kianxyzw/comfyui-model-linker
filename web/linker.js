@@ -1436,7 +1436,7 @@ class LinkerManagerDialog extends ComfyDialog {
 
             if (resolveData.success) {
                 // Update workflow in ComfyUI
-                await this.updateWorkflowInComfyUI(resolveData.workflow);
+                await this.updateWorkflowInComfyUI(resolveData.workflow, resolutions);
 
                 // Show success notification
                 this.showNotification(
@@ -1484,7 +1484,7 @@ class LinkerManagerDialog extends ComfyDialog {
 
             const data = await response.json();
             if (data.success) {
-                await this.updateWorkflowInComfyUI(data.workflow);
+                await this.updateWorkflowInComfyUI(data.workflow, list);
                 this.showNotification(`✓ Linked ${list.length} selection${list.length > 1 ? 's' : ''}`, 'success');
                 // Clear queue and refresh analysis
                 this.pendingResolutions = [];
@@ -1768,42 +1768,91 @@ class LinkerManagerDialog extends ComfyDialog {
      * Update workflow in ComfyUI's UI/memory
      * Updates the current workflow in place instead of creating a new tab
      */
-    async updateWorkflowInComfyUI(workflow) {
+    async updateWorkflowInComfyUI(workflow, resolutions) {
         if (!app || !app.graph) {
             console.warn('Model Linker: Could not update workflow - app or app.graph not available');
             return;
         }
 
         try {
-            // Method 1: Try to directly update the current graph using configure
-            // This is the most direct way to update in place
-            if (app.graph && typeof app.graph.configure === 'function') {
-                app.graph.configure(workflow);
+            // Strategy: Directly update only the changed widget values on live graph nodes.
+            // Previous approach used graph.configure() which clears the entire graph and
+            // rebuilds from scratch — causing all nodes to disappear on newer ComfyUI versions.
+            if (resolutions && resolutions.length > 0) {
+                let updatedCount = 0;
+
+                for (const res of resolutions) {
+                    const nodeId = res.node_id;
+                    const widgetIndex = res.widget_index;
+
+                    // Get the new value from the updated workflow returned by backend
+                    let newValue = undefined;
+                    const workflowNodes = workflow?.nodes || [];
+                    for (const wn of workflowNodes) {
+                        if (wn.id === nodeId) {
+                            const wv = wn.widgets_values;
+                            if (Array.isArray(wv) && widgetIndex >= 0 && widgetIndex < wv.length) {
+                                newValue = wv[widgetIndex];
+                            } else if (wv && typeof wv === 'object' && widgetIndex in wv) {
+                                newValue = wv[widgetIndex];
+                            }
+                            break;
+                        }
+                    }
+
+                    // Also check subgraph definitions if not found in top-level nodes
+                    if (newValue === undefined && res.subgraph_id && res.is_top_level === false) {
+                        const defs = (workflow?.definitions?.subgraphs) || [];
+                        for (const sg of defs) {
+                            if (sg.id === res.subgraph_id) {
+                                for (const wn of (sg.nodes || [])) {
+                                    if (wn.id === nodeId) {
+                                        const wv = wn.widgets_values;
+                                        if (Array.isArray(wv) && widgetIndex >= 0 && widgetIndex < wv.length) {
+                                            newValue = wv[widgetIndex];
+                                        } else if (wv && typeof wv === 'object' && widgetIndex in wv) {
+                                            newValue = wv[widgetIndex];
+                                        }
+                                        break;
+                                    }
+                                }
+                                break;
+                            }
+                        }
+                    }
+
+                    if (newValue === undefined) continue;
+
+                    // Find the live node in the graph and update its widget value directly
+                    const node = app.graph.getNodeById(nodeId);
+                    if (!node) {
+                        console.debug(`Model Linker: Node ${nodeId} not found in live graph (may be inside subgraph definition)`);
+                        continue;
+                    }
+
+                    if (node.widgets && node.widgets[widgetIndex]) {
+                        node.widgets[widgetIndex].value = newValue;
+                        // Trigger widget callback if available (updates combo dropdowns, etc.)
+                        if (typeof node.widgets[widgetIndex].callback === 'function') {
+                            try { node.widgets[widgetIndex].callback(newValue); } catch (_) { /* ignore */ }
+                        }
+                        updatedCount++;
+                    }
+                }
+
+                // Refresh the canvas to reflect changes
+                if (updatedCount > 0) {
+                    app.graph.setDirtyCanvas(true, true);
+                }
                 return;
             }
 
-            // Method 2: Try deserialize to update the graph in place
-            if (app.graph && typeof app.graph.deserialize === 'function') {
-                app.graph.deserialize(workflow);
-                return;
-            }
-
-            // Method 3: Use loadGraphData with explicit parameters to update current tab
-            // The key is to NOT create a new workflow - pass null or undefined for the workflow parameter
-            // clean=false means don't clear the graph first
-            // restore_view=false means don't restore the viewport
-            // workflow=null means update current workflow instead of creating new one
+            // Fallback: if no resolutions provided, use loadGraphData
             if (app.loadGraphData) {
-                // Try with null as 4th parameter first
                 await app.loadGraphData(workflow, false, false, null);
-                return;
             }
-
-            console.warn('Model Linker: No method available to update workflow');
         } catch (error) {
             console.error('Model Linker: Error updating workflow in ComfyUI:', error);
-            // Don't throw - allow the workflow update to continue even if UI update fails
-            // The backend has already updated the workflow data
         }
     }
 }
