@@ -126,10 +126,20 @@ class ModelLinkerExtension:
                     # Persist user choices as overrides (so next time we know the correct match)
                     try:
                         # helper to fetch the pre-update widget value
-                        def _get_original_value(wf, node_id, widget_index, subgraph_id=None, is_top_level=None):
+                        def _get_widget_value(widgets_values, widget_index):
+                            """Safely get a value from widgets_values (array or dict)."""
+                            if isinstance(widgets_values, dict):
+                                return widgets_values.get(widget_index)
+                            elif isinstance(widgets_values, (list, tuple)):
+                                if isinstance(widget_index, int) and 0 <= widget_index < len(widgets_values):
+                                    return widgets_values[widget_index]
+                            return None
+
+                        def _get_original_value(wf, node_id, widget_index, subgraph_id=None, is_top_level=None, nested_key=None):
                             try:
                                 if not wf:
                                     return None
+                                value = None
                                 # Decide where to look for node
                                 if is_top_level is False or (is_top_level is None and subgraph_id):
                                     # Search subgraph definitions
@@ -138,16 +148,21 @@ class ModelLinkerExtension:
                                         if sg.get('id') == subgraph_id:
                                             for n in sg.get('nodes') or []:
                                                 if n.get('id') == node_id:
-                                                    w = n.get('widgets_values') or []
-                                                    return w[widget_index] if 0 <= widget_index < len(w) else None
-                                # Fallback/top-level
-                                for n in wf.get('nodes') or []:
-                                    if n.get('id') == node_id:
-                                        w = n.get('widgets_values') or []
-                                        return w[widget_index] if 0 <= widget_index < len(w) else None
+                                                    value = _get_widget_value(n.get('widgets_values'), widget_index)
+                                                    break
+                                            break
+                                if value is None:
+                                    # Fallback/top-level
+                                    for n in wf.get('nodes') or []:
+                                        if n.get('id') == node_id:
+                                            value = _get_widget_value(n.get('widgets_values'), widget_index)
+                                            break
+                                # Extract nested key for dict-type widgets (e.g. Power Lora Loader)
+                                if nested_key and isinstance(value, dict):
+                                    return value.get(nested_key)
+                                return value
                             except Exception:
                                 return None
-                            return None
 
                         for res in resolutions:
                             # Expect original_path from client; otherwise derive from pre-update workflow
@@ -158,7 +173,8 @@ class ModelLinkerExtension:
                                     res.get('node_id'),
                                     res.get('widget_index', 0),
                                     res.get('subgraph_id'),
-                                    res.get('is_top_level')
+                                    res.get('is_top_level'),
+                                    res.get('nested_key')
                                 )
                             category = res.get('category')
                             resolved_model = res.get('resolved_model')
@@ -248,7 +264,49 @@ class ModelLinkerExtension:
                 except Exception as e:
                     self.logger.error(f"Model Linker replace_overrides error: {e}", exc_info=True)
                     return web.json_response({'success': False, 'error': str(e)}, status=500)
-            
+
+            @routes.get("/model_linker/preview")
+            async def get_model_preview(request):
+                """Return a preview image/video for a model if one exists alongside it."""
+                import os
+                try:
+                    model_type = request.rel_url.query.get('type', '')
+                    model_file = request.rel_url.query.get('file', '')
+                    if not model_type or not model_file:
+                        return web.Response(status=400, text='type and file query params required')
+
+                    import folder_paths as fp
+                    model_path = fp.get_full_path(model_type, model_file)
+                    if not model_path or not os.path.isfile(model_path):
+                        return web.Response(status=404)
+
+                    # Security: ensure resolved path is inside a known category directory
+                    category_dirs = fp.get_folder_paths(model_type)
+                    is_safe = False
+                    for base_dir in category_dirs:
+                        try:
+                            real_model = os.path.realpath(model_path)
+                            real_base = os.path.realpath(base_dir)
+                            if os.path.commonpath([real_model, real_base]) == real_base:
+                                is_safe = True
+                                break
+                        except (ValueError, OSError):
+                            continue
+                    if not is_safe:
+                        return web.Response(status=403)
+
+                    # Look for preview files with same base name
+                    base_no_ext = os.path.splitext(model_path)[0]
+                    for ext in ('.png', '.jpg', '.jpeg', '.webp', '.mp4'):
+                        preview_path = base_no_ext + ext
+                        if os.path.isfile(preview_path):
+                            return web.FileResponse(preview_path)
+
+                    return web.Response(status=404)
+                except Exception as e:
+                    self.logger.debug(f"Model Linker preview error: {e}")
+                    return web.Response(status=404)
+
             self.routes_setup = True
             self.logger.info("Model Linker: API routes registered successfully")
             return True

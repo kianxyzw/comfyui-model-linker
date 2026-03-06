@@ -17,7 +17,7 @@ except ImportError:
 
 
 # Common model file extensions
-MODEL_EXTENSIONS = {'.ckpt', '.pt', '.pt2', '.bin', '.pth', '.safetensors', '.pkl', '.sft', '.onnx'}
+MODEL_EXTENSIONS = {'.ckpt', '.pt', '.pt2', '.bin', '.pth', '.safetensors', '.pkl', '.sft', '.onnx', '.gguf'}
 
 # Node types that should never be scanned for model references.
 # These are note/utility nodes whose widget values may contain model filenames
@@ -49,6 +49,23 @@ NODE_TYPE_TO_CATEGORY_HINTS = {
     'StyleModelLoader': 'style_models',
     'HypernetworkLoader': 'hypernetworks',
     'EmbeddingLoader': 'embeddings',
+    'Power Lora Loader (rgthree)': 'loras',
+    # LTX-Video nodes
+    'LTXVAudioVAELoader': 'checkpoints',
+    'LowVRAMAudioVAELoader': 'checkpoints',
+    'LTXVGemmaCLIPModelLoader': 'text_encoders',
+}
+
+# Keys within dict-type widget values that contain model file references.
+# Some nodes (e.g. rgthree Power Lora Loader) store model info as objects like
+# {"on": true, "lora": "name.safetensors", "strength": 1.0} inside widgets_values.
+# Maps nested key name -> category hint.
+NESTED_MODEL_KEYS = {
+    'lora': 'loras',
+    'ckpt_name': 'checkpoints',
+    'checkpoint': 'checkpoints',
+    'vae_name': 'vae',
+    'control_net_name': 'controlnet',
 }
 
 
@@ -158,15 +175,17 @@ def get_node_model_info(node: Dict[str, Any]) -> List[Dict[str, Any]]:
     # Get category hints for this node type
     category_hint = NODE_TYPE_TO_CATEGORY_HINTS.get(node_type)
 
-    # Build per-model category map from properties.models (newer ComfyUI feature)
-    # This provides reliable category info for each model the node expects
+    # Build per-input category map from properties.models (newer ComfyUI feature).
+    # This maps widget INPUT NAMES (e.g. "ckpt_name") to their folder_paths category
+    # (e.g. "checkpoints"), allowing detection of model inputs even when the stored
+    # value lacks a standard model file extension.
     properties_models = (node.get('properties') or {}).get('models') or []
-    model_category_map: Dict[str, str] = {}
+    model_input_categories: Dict[str, str] = {}
     for pm in properties_models:
         name = pm.get('name', '')
         directory = pm.get('directory', '')
         if name and directory:
-            model_category_map[name] = directory
+            model_input_categories[name] = directory
 
     # Handle both array and dict format for widgets_values
     if isinstance(widgets_values, dict):
@@ -177,35 +196,75 @@ def get_node_model_info(node: Dict[str, Any]) -> List[Dict[str, Any]]:
         return model_refs
 
     for idx, value in items:
-        if not is_model_filename(value):
-            continue
+        # For dict-format widgets_values, idx is the input name (str key).
+        # Check if properties.models identifies this input as a model widget.
+        input_category = model_input_categories.get(idx) if isinstance(idx, str) else None
 
-        # Determine best category: properties.models > node type hint > all categories
-        value_category = model_category_map.get(value) or category_hint
-        categories_to_try = [value_category] if value_category else None
+        # Case 1: Direct string value — detected either by file extension
+        # or by properties.models metadata identifying this as a model input
+        if isinstance(value, str) and value.strip():
+            has_model_ext = is_model_filename(value)
+            is_known_model_input = input_category is not None
 
-        # Try to resolve the model path
-        resolved = try_resolve_model_path(value, categories_to_try)
+            if has_model_ext or is_known_model_input:
+                # Determine best category: properties.models > node type hint > all
+                value_category = input_category or category_hint
+                categories_to_try = [value_category] if value_category else None
 
-        if resolved:
-            category, full_path = resolved
-            exists = os.path.exists(full_path)
-        else:
-            # If we can't resolve it, check if it at least looks like a model filename
-            # This might be a missing model or a custom node's model
-            category = value_category or 'unknown'
-            full_path = None
-            exists = False
+                # Try to resolve the model path
+                resolved = try_resolve_model_path(value, categories_to_try)
 
-        model_refs.append({
-            'node_id': node_id,
-            'node_type': node_type,
-            'widget_index': idx,
-            'original_path': value,
-            'category': category,
-            'full_path': full_path,
-            'exists': exists
-        })
+                if resolved:
+                    category, full_path = resolved
+                    exists = os.path.exists(full_path)
+                else:
+                    category = value_category or 'unknown'
+                    full_path = None
+                    exists = False
+
+                model_refs.append({
+                    'node_id': node_id,
+                    'node_type': node_type,
+                    'widget_index': idx,
+                    'original_path': value,
+                    'category': category,
+                    'full_path': full_path,
+                    'exists': exists,
+                    'nested_key': None
+                })
+                continue
+
+        # Case 2: Dict value containing a model reference key
+        # e.g. {"on": true, "lora": "name.safetensors", "strength": 1.0}
+        if isinstance(value, dict):
+            for nested_key, nested_category_hint in NESTED_MODEL_KEYS.items():
+                nested_value = value.get(nested_key)
+                if not nested_value or not is_model_filename(nested_value):
+                    continue
+
+                value_category = nested_category_hint or category_hint
+                categories_to_try = [value_category] if value_category else None
+
+                resolved = try_resolve_model_path(nested_value, categories_to_try)
+
+                if resolved:
+                    category, full_path = resolved
+                    exists = os.path.exists(full_path)
+                else:
+                    category = value_category or 'unknown'
+                    full_path = None
+                    exists = False
+
+                model_refs.append({
+                    'node_id': node_id,
+                    'node_type': node_type,
+                    'widget_index': idx,
+                    'original_path': nested_value,
+                    'category': category,
+                    'full_path': full_path,
+                    'exists': exists,
+                    'nested_key': nested_key
+                })
 
     return model_refs
 

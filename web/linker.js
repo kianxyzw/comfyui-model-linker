@@ -161,6 +161,39 @@ class LinkerManagerDialog extends ComfyDialog {
             }
         } catch (e) { /* ignore */ }
 
+        // Preview tooltip styles for model image hover previews
+        try {
+            if (!document.getElementById('model-linker-style-preview')) {
+                const previewStyle = $el("style", {
+                    id: 'model-linker-style-preview',
+                    textContent: `
+                        #model-linker-preview-tooltip {
+                            position: fixed;
+                            z-index: 200000;
+                            pointer-events: none;
+                            background: var(--comfy-menu-bg, #1a1a1a);
+                            border: 1px solid var(--border-color, #555);
+                            border-radius: 6px;
+                            padding: 4px;
+                            box-shadow: 0 4px 16px rgba(0,0,0,0.7);
+                            display: none;
+                            max-width: 320px;
+                            max-height: 320px;
+                        }
+                        #model-linker-preview-tooltip img,
+                        #model-linker-preview-tooltip video {
+                            display: block;
+                            max-width: 312px;
+                            max-height: 312px;
+                            object-fit: contain;
+                            border-radius: 4px;
+                        }
+                    `
+                });
+                document.head.appendChild(previewStyle);
+            }
+        } catch (e) { /* ignore */ }
+
         // Apply saved size if present and persist future resizes
         try {
             const saved = localStorage.getItem('model_linker_modal_size');
@@ -631,8 +664,88 @@ class LinkerManagerDialog extends ComfyDialog {
     }
 
     close() {
+        this._hidePreview();
         this.element.style.display = "none";
     }
+
+    // ── Preview tooltip helpers ──────────────────────────────────────
+
+    /** Lazily create the shared preview tooltip element. */
+    _getPreviewTooltip() {
+        if (this._previewTooltip) return this._previewTooltip;
+        const el = document.createElement('div');
+        el.id = 'model-linker-preview-tooltip';
+        document.body.appendChild(el);
+        this._previewTooltip = el;
+        return el;
+    }
+
+    /**
+     * Show a model preview image next to an anchor element.
+     * Falls back to <video> if <img> fails (for .mp4 previews).
+     */
+    _showPreview(category, relativePath, anchorEl) {
+        if (!category || !relativePath) return;
+        const tooltip = this._getPreviewTooltip();
+        const url = `/model_linker/preview?type=${encodeURIComponent(category)}&file=${encodeURIComponent(relativePath)}`;
+
+        // Try image first
+        const img = document.createElement('img');
+        img.src = url;
+        img.onload = () => {
+            tooltip.innerHTML = '';
+            tooltip.appendChild(img);
+            this._positionTooltip(tooltip, anchorEl);
+            tooltip.style.display = 'block';
+        };
+        img.onerror = () => {
+            // Might be a video preview (.mp4) – try <video>
+            const vid = document.createElement('video');
+            vid.src = url;
+            vid.autoplay = true;
+            vid.loop = true;
+            vid.muted = true;
+            vid.playsInline = true;
+            vid.onloadeddata = () => {
+                tooltip.innerHTML = '';
+                tooltip.appendChild(vid);
+                this._positionTooltip(tooltip, anchorEl);
+                tooltip.style.display = 'block';
+            };
+            vid.onerror = () => {
+                // No preview available – keep hidden
+                tooltip.style.display = 'none';
+            };
+        };
+    }
+
+    /** Position the tooltip to the right of the anchor, clamped to viewport. */
+    _positionTooltip(tooltip, anchorEl) {
+        const rect = anchorEl.getBoundingClientRect();
+        let left = rect.right + 8;
+        let top = rect.top;
+
+        // Clamp to viewport
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        if (left + 330 > vw) left = rect.left - 330;
+        if (left < 0) left = 4;
+        if (top + 330 > vh) top = vh - 334;
+        if (top < 0) top = 4;
+
+        tooltip.style.left = left + 'px';
+        tooltip.style.top = top + 'px';
+    }
+
+    /** Hide the preview tooltip. */
+    _hidePreview() {
+        if (this._previewTooltip) {
+            this._previewTooltip.style.display = 'none';
+            this._previewTooltip.innerHTML = '';
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────
 
     /**
      * Ensure all models are loaded for the dropdown.
@@ -993,6 +1106,16 @@ class LinkerManagerDialog extends ComfyDialog {
                     resolveButton.addEventListener('click', () => {
                         this.queueResolution(missing, match.model);
                     });
+                    // Preview on hover over the match <li>
+                    const liEl = resolveButton.closest('li');
+                    if (liEl && match.model) {
+                        liEl.addEventListener('mouseenter', () => {
+                            this._showPreview(match.model.category || missing.category, match.model.relative_path || match.model.filename, liEl);
+                        });
+                        liEl.addEventListener('mouseleave', () => {
+                            this._hidePreview();
+                        });
+                    }
                 }
             });
 
@@ -1346,6 +1469,7 @@ class LinkerManagerDialog extends ComfyDialog {
             original_path: missing.original_path,
             subgraph_id: missing.subgraph_id,
             is_top_level: missing.is_top_level,
+            nested_key: missing.nested_key || null,
             node_type: missing.node_type,
             node_label: missing.subgraph_name || missing.node_type
         };
@@ -1407,8 +1531,9 @@ class LinkerManagerDialog extends ComfyDialog {
                         category: missing.category,
                         resolved_model: perfectMatch.model,
                         original_path: missing.original_path,
-                        subgraph_id: missing.subgraph_id,  // Include subgraph_id for subgraph nodes
-                        is_top_level: missing.is_top_level  // True for top-level nodes, False for nodes in subgraph definitions
+                        subgraph_id: missing.subgraph_id,
+                        is_top_level: missing.is_top_level,
+                        nested_key: missing.nested_key || null
                     });
                 }
             }
@@ -1641,7 +1766,7 @@ class LinkerManagerDialog extends ComfyDialog {
             } catch (_) { }
         };
         const openList = () => { updateListPosition(); listEl.style.display = 'block'; };
-        const closeList = () => { listEl.style.display = 'none'; activeIndex = -1; };
+        const closeList = () => { listEl.style.display = 'none'; activeIndex = -1; this._hidePreview(); };
         const isOpen = () => listEl.style.display !== 'none';
 
         const updateList = () => {
@@ -1706,6 +1831,22 @@ class LinkerManagerDialog extends ComfyDialog {
                 this.queueResolution(missing, chosen);
                 inputEl.value = chosen.relative_path || chosen.filename || '';
                 closeList();
+            }
+        });
+        // Preview on hover over dropdown items (event delegation)
+        listEl.addEventListener('mouseover', (e) => {
+            const item = e.target.closest('[data-idx]');
+            if (!item) return;
+            const idx = parseInt(item.getAttribute('data-idx'), 10);
+            const model = currentItems[idx];
+            if (model) {
+                this._showPreview(model.category || missing.category, model.relative_path || model.filename, item);
+            }
+        });
+        listEl.addEventListener('mouseout', (e) => {
+            const item = e.target.closest('[data-idx]');
+            if (item && !item.contains(e.relatedTarget)) {
+                this._hidePreview();
             }
         });
         document.addEventListener('click', (e) => {
@@ -1831,10 +1972,17 @@ class LinkerManagerDialog extends ComfyDialog {
                     }
 
                     if (node.widgets && node.widgets[widgetIndex]) {
-                        node.widgets[widgetIndex].value = newValue;
+                        const widget = node.widgets[widgetIndex];
+                        // For nested dict widgets (e.g. Power Lora Loader), update only the
+                        // specific key to preserve other properties (on, strength, etc.)
+                        if (res.nested_key && widget.value && typeof widget.value === 'object' && typeof newValue === 'object') {
+                            widget.value[res.nested_key] = newValue[res.nested_key];
+                        } else {
+                            widget.value = newValue;
+                        }
                         // Trigger widget callback if available (updates combo dropdowns, etc.)
-                        if (typeof node.widgets[widgetIndex].callback === 'function') {
-                            try { node.widgets[widgetIndex].callback(newValue); } catch (_) { /* ignore */ }
+                        if (typeof widget.callback === 'function') {
+                            try { widget.callback(widget.value); } catch (_) { /* ignore */ }
                         }
                         updatedCount++;
                     }

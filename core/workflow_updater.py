@@ -116,7 +116,8 @@ def update_model_path(
     base_directory: str = None,
     resolved_model: Dict[str, Any] = None,
     subgraph_id: str = None,
-    is_top_level: bool = None
+    is_top_level: bool = None,
+    nested_key: str = None
 ) -> bool:
     """
     Update a single model path in a workflow node, supporting both top-level and subgraph nodes.
@@ -225,10 +226,13 @@ def update_model_path(
     else:
         relative_path = resolved_path
     
-    # Update the widget value
-    widgets_values[widget_index] = relative_path
-    
-    logging.debug(f"Updated node {node_id}, widget {widget_index} to: {relative_path}")
+    # Update the widget value (handle nested dict values like Power Lora Loader)
+    if nested_key and isinstance(widgets_values[widget_index], dict):
+        widgets_values[widget_index][nested_key] = relative_path
+    else:
+        widgets_values[widget_index] = relative_path
+
+    logging.debug(f"Updated node {node_id}, widget {widget_index}{('[' + nested_key + ']') if nested_key else ''} to: {relative_path}")
     return True
 
 
@@ -276,7 +280,8 @@ def update_workflow_nodes(
         resolved_model = mapping.get('resolved_model')
         subgraph_id = mapping.get('subgraph_id')
         is_top_level = mapping.get('is_top_level')  # True for top-level nodes, False for nodes in subgraph definitions
-        
+        nested_key = mapping.get('nested_key')  # For dict-type widgets (e.g. Power Lora Loader)
+
         success = update_model_path(
             workflow,
             node_id,
@@ -286,7 +291,8 @@ def update_workflow_nodes(
             base_directory,
             resolved_model,
             subgraph_id,
-            is_top_level
+            is_top_level,
+            nested_key
         )
         
         if success:
