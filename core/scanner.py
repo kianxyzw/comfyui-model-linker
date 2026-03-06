@@ -17,7 +17,7 @@ except ImportError:
 
 # Model file extensions to look for
 # This matches folder_paths.supported_pt_extensions
-MODEL_EXTENSIONS = {'.ckpt', '.pt', '.pt2', '.bin', '.pth', '.safetensors', '.pkl', '.sft', '.onnx'}
+MODEL_EXTENSIONS = {'.ckpt', '.pt', '.pt2', '.bin', '.pth', '.safetensors', '.pkl', '.sft', '.onnx', '.gguf'}
 
 
 def get_model_directories() -> Dict[str, Tuple[List[str], set]]:
