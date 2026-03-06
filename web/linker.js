@@ -745,6 +745,17 @@ class LinkerManagerDialog extends ComfyDialog {
         }
     }
 
+    /** Extract the containing folder from a model dict (display-only, never sent to nodes). */
+    _getModelFolder(model) {
+        if (!model) return '';
+        // Use absolute path and strip the filename to get the directory
+        const absPath = model.path || '';
+        if (!absPath) return model.base_directory || '';
+        // Handle both / and \ separators
+        const lastSep = Math.max(absPath.lastIndexOf('/'), absPath.lastIndexOf('\\'));
+        return lastSep > 0 ? absPath.substring(0, lastSep) : '';
+    }
+
     // ────────────────────────────────────────────────────────────────
 
     /**
@@ -1240,10 +1251,15 @@ class LinkerManagerDialog extends ComfyDialog {
                     html += ` <span style="color:#0aa96e; font-weight:600;">(saved)</span>`;
                 }
                 // Always provide a Resolve button so the user can pick explicitly
-                html += ` <button id="${buttonId}" 
+                html += ` <button id="${buttonId}"
                         class="model-linker-resolve-btn" style="margin-left: 8px; padding: 4px 8px;">
                         Select
                     </button>`;
+                // Show folder location (UI-only, not sent to nodes)
+                const folderPath = this._getModelFolder(match.model);
+                if (folderPath) {
+                    html += `<div style="font-size:11px; color:#888; opacity:0.8; margin-top:1px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${folderPath}">📁 ${folderPath}</div>`;
+                }
                 html += `</li>`;
             }
 
@@ -1695,9 +1711,14 @@ class LinkerManagerDialog extends ComfyDialog {
                     labelHtml = out;
                 }
                 const activeStyle = (i === activeIdx) ? 'background: rgba(0,122,204,0.25);' : '';
-                html += `<div data-idx="${i}" style="${activeStyle} padding:6px; display:flex; align-items:center; gap:6px; cursor:pointer;">
-                    <code style="flex:1;">${labelHtml}</code>
-                    ${isSaved ? '<span style="color:#0aa96e; font-weight:600;">(saved)</span>' : ''}
+                const folderPath = this._getModelFolder(m);
+                const folderHtml = folderPath ? `<div style="font-size:10px; color:#888; opacity:0.8; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${esc(folderPath)}">📁 ${esc(folderPath)}</div>` : '';
+                html += `<div data-idx="${i}" style="${activeStyle} padding:6px; cursor:pointer;">
+                    <div style="display:flex; align-items:center; gap:6px;">
+                        <code style="flex:1;">${labelHtml}</code>
+                        ${isSaved ? '<span style="color:#0aa96e; font-weight:600;">(saved)</span>' : ''}
+                    </div>
+                    ${folderHtml}
                 </div>`;
             }
             listEl.innerHTML = html;
