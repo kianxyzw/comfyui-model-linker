@@ -683,22 +683,28 @@ class LinkerManagerDialog extends ComfyDialog {
     /**
      * Show a model preview image next to an anchor element.
      * Falls back to <video> if <img> fails (for .mp4 previews).
+     * Uses a generation counter to discard stale loads when hovering quickly.
      */
     _showPreview(category, relativePath, anchorEl) {
         if (!category || !relativePath) return;
         const tooltip = this._getPreviewTooltip();
         const url = `/model_linker/preview?type=${encodeURIComponent(category)}&file=${encodeURIComponent(relativePath)}`;
 
+        // Bump generation so earlier async loads are discarded
+        const gen = (this._previewGen = (this._previewGen || 0) + 1);
+
         // Try image first
         const img = document.createElement('img');
         img.src = url;
         img.onload = () => {
+            if (this._previewGen !== gen) return; // stale
             tooltip.innerHTML = '';
             tooltip.appendChild(img);
             this._positionTooltip(tooltip, anchorEl);
             tooltip.style.display = 'block';
         };
         img.onerror = () => {
+            if (this._previewGen !== gen) return; // stale
             // Might be a video preview (.mp4) – try <video>
             const vid = document.createElement('video');
             vid.src = url;
@@ -707,13 +713,14 @@ class LinkerManagerDialog extends ComfyDialog {
             vid.muted = true;
             vid.playsInline = true;
             vid.onloadeddata = () => {
+                if (this._previewGen !== gen) return; // stale
                 tooltip.innerHTML = '';
                 tooltip.appendChild(vid);
                 this._positionTooltip(tooltip, anchorEl);
                 tooltip.style.display = 'block';
             };
             vid.onerror = () => {
-                // No preview available – keep hidden
+                if (this._previewGen !== gen) return; // stale
                 tooltip.style.display = 'none';
             };
         };
@@ -737,8 +744,9 @@ class LinkerManagerDialog extends ComfyDialog {
         tooltip.style.top = top + 'px';
     }
 
-    /** Hide the preview tooltip. */
+    /** Hide the preview tooltip and cancel any in-flight loads. */
     _hidePreview() {
+        this._previewGen = (this._previewGen || 0) + 1; // invalidate pending loads
         if (this._previewTooltip) {
             this._previewTooltip.style.display = 'none';
             this._previewTooltip.innerHTML = '';
@@ -1864,11 +1872,8 @@ class LinkerManagerDialog extends ComfyDialog {
                 this._showPreview(model.category || missing.category, model.relative_path || model.filename, item);
             }
         });
-        listEl.addEventListener('mouseout', (e) => {
-            const item = e.target.closest('[data-idx]');
-            if (item && !item.contains(e.relatedTarget)) {
-                this._hidePreview();
-            }
+        listEl.addEventListener('mouseleave', () => {
+            this._hidePreview();
         });
         document.addEventListener('click', (e) => {
             if (!comboWrap.contains(e.target)) closeList();
