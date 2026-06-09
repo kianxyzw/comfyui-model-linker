@@ -1932,6 +1932,73 @@ class LinkerManagerDialog extends ComfyDialog {
     }
 
     /**
+     * Locate a live node that lives inside a subgraph instance's inner graph.
+     *
+     * The root graph (app.graph) only contains top-level nodes and subgraph
+     * *instance* nodes. The nodes defined *inside* a subgraph live in each
+     * instance's own inner graph, reachable via `subgraphNode.subgraph`.
+     * This walks all subgraph instances (recursively, for nested subgraphs)
+     * and returns the matching inner node.
+     *
+     * @param {object} graph    A live LGraph (start with app.graph)
+     * @param {string} subgraphId  Definition UUID of the owning subgraph
+     * @param {number|string} nodeId  Inner node id from the serialized definition
+     * @returns {object|null} The live LGraphNode, or null if not found
+     */
+    findLiveNodeInSubgraphs(graph, subgraphId, nodeId) {
+        const getInner = (n) => {
+            try {
+                if (typeof n.isSubgraphNode === 'function') {
+                    return n.isSubgraphNode() ? (n.subgraph || null) : null;
+                }
+                return n.subgraph || null;
+            } catch (e) {
+                return null;
+            }
+        };
+        const lookup = (sub) => {
+            if (!sub) return null;
+            if (typeof sub.getNodeById === 'function') {
+                const hit = sub.getNodeById(nodeId);
+                if (hit) return hit;
+            }
+            if (sub._nodes_by_id && sub._nodes_by_id[nodeId]) return sub._nodes_by_id[nodeId];
+            return null;
+        };
+
+        // Collect every subgraph instance's inner graph, recursively.
+        const innerGraphs = [];
+        const visit = (g) => {
+            const nodes = (g && (g._nodes || g.nodes)) || [];
+            for (const n of nodes) {
+                const inner = getInner(n);
+                if (inner) {
+                    innerGraphs.push(inner);
+                    visit(inner);
+                }
+            }
+        };
+        visit(graph);
+
+        // First pass: match the owning subgraph by its definition id (most precise).
+        if (subgraphId) {
+            for (const sub of innerGraphs) {
+                if (sub.id === subgraphId) {
+                    const hit = lookup(sub);
+                    if (hit) return hit;
+                }
+            }
+        }
+        // Fallback: id mismatch (older/newer frontends may key differently) —
+        // search every subgraph for a node with this id.
+        for (const sub of innerGraphs) {
+            const hit = lookup(sub);
+            if (hit) return hit;
+        }
+        return null;
+    }
+
+    /**
      * Update workflow in ComfyUI's UI/memory
      * Updates the current workflow in place instead of creating a new tab
      */
@@ -1990,15 +2057,40 @@ class LinkerManagerDialog extends ComfyDialog {
 
                     if (newValue === undefined) continue;
 
-                    // Find the live node in the graph and update its widget value directly
-                    const node = app.graph.getNodeById(nodeId);
+                    // Find the live node in the graph and update its widget value directly.
+                    // Nodes inside a subgraph definition do NOT live in the root graph
+                    // (app.graph) — they live in the subgraph instance's inner graph
+                    // (subgraphNode.subgraph). Route the lookup accordingly so subgraph
+                    // model widgets actually get updated on the live canvas.
+                    let node = null;
+                    if (res.is_top_level === false && res.subgraph_id) {
+                        // Definitely inside a subgraph definition — search subgraphs only.
+                        // (Inner node ids can collide with root ids, so never trust a root match here.)
+                        node = this.findLiveNodeInSubgraphs(app.graph, res.subgraph_id, nodeId);
+                    } else {
+                        node = app.graph.getNodeById(nodeId);
+                        if (!node && res.subgraph_id) {
+                            node = this.findLiveNodeInSubgraphs(app.graph, res.subgraph_id, nodeId);
+                        }
+                    }
                     if (!node) {
-                        console.debug(`Model Linker: Node ${nodeId} not found in live graph (may be inside subgraph definition)`);
+                        console.debug(`Model Linker: Node ${nodeId} not found in live graph (subgraph_id=${res.subgraph_id || 'none'})`);
                         continue;
                     }
 
                     if (node.widgets && node.widgets[widgetIndex]) {
                         const widget = node.widgets[widgetIndex];
+                        const oldValue = widget.value;
+                        // Make sure the resolved value is actually a selectable option,
+                        // otherwise a combo widget keeps treating it as missing.
+                        try {
+                            const plainVal = (res.nested_key && newValue && typeof newValue === 'object')
+                                ? newValue[res.nested_key] : newValue;
+                            const vals = widget.options && widget.options.values;
+                            if (Array.isArray(vals) && typeof plainVal === 'string' && !vals.includes(plainVal)) {
+                                vals.push(plainVal);
+                            }
+                        } catch (_) { /* ignore */ }
                         // For nested dict widgets (e.g. Power Lora Loader), update only the
                         // specific key to preserve other properties (on, strength, etc.)
                         if (res.nested_key && widget.value && typeof widget.value === 'object' && typeof newValue === 'object') {
@@ -2010,6 +2102,14 @@ class LinkerManagerDialog extends ComfyDialog {
                         if (typeof widget.callback === 'function') {
                             try { widget.callback(widget.value); } catch (_) { /* ignore */ }
                         }
+                        // Fire the node's onWidgetChanged hook — this is what ComfyUI's
+                        // error-clearing hooks listen to in order to drop the "missing model"
+                        // flag and remove the red outline. Setting widget.value alone does NOT
+                        // trigger it (that's why users had to toggle the combo manually).
+                        try {
+                            node.onWidgetChanged?.(widget.name, widget.value, oldValue, widget);
+                        } catch (_) { /* ignore */ }
+                        try { node.graph?.incrementVersion?.(); } catch (_) { /* ignore */ }
                         updatedCount++;
                     }
                 }
