@@ -101,27 +101,43 @@ def find_matches(
     target_model: str,
     candidate_models: List[Dict[str, str]],
     threshold: float = 0.0,
-    max_results: int = 10
+    max_results: int = 10,
+    expected_categories: List[str] = None
 ) -> List[Dict[str, any]]:
     """
     Find similar models using fuzzy matching.
-    
+
     Args:
         target_model: The target model filename/path to match
         candidate_models: List of candidate model dictionaries with 'filename' or 'path' key
         threshold: Minimum similarity score (0.0 to 1.0) to include in results
         max_results: Maximum number of results to return
-        
+        expected_categories: Folder categories the referencing node loads from.
+            Candidates outside these are flagged 'category_mismatch' — the
+            node couldn't actually load them from where they are (issue #3)
+
     Returns:
-        List of match dictionaries sorted by similarity (highest first):
+        List of match dictionaries sorted by similarity (highest first,
+        right-folder matches before wrong-folder ones at equal similarity):
         {
             'model': original model dict from candidates,
             'filename': model filename,
             'similarity': similarity score (0.0 to 1.0),
-            'confidence': confidence percentage (0 to 100)
+            'confidence': confidence percentage (0 to 100),
+            'category_mismatch': True if the file is in a folder the node
+                                 doesn't load from,
+            'expected_categories': the expected categories (when known)
         }
     """
     matches = []
+
+    def category_mismatch(candidate):
+        if not expected_categories:
+            return False
+        candidate_category = candidate.get('category')
+        if not candidate_category:
+            return False  # Unknown candidate category - don't flag
+        return candidate_category not in expected_categories
     
     # Normalize path separators to forward slashes so Windows- and
     # Linux-authored workflow paths compare identically on either OS
@@ -169,7 +185,9 @@ def find_matches(
                 'model': candidate,
                 'filename': candidate_filename,
                 'similarity': similarity,
-                'confidence': round(similarity * 100, 1)
+                'confidence': round(similarity * 100, 1),
+                'category_mismatch': category_mismatch(candidate),
+                'expected_categories': expected_categories
             })
             continue
         
@@ -209,11 +227,14 @@ def find_matches(
                 'model': candidate,
                 'filename': candidate_filename,
                 'similarity': similarity,
-                'confidence': round(similarity * 100, 1)  # Convert to percentage
+                'confidence': round(similarity * 100, 1),  # Convert to percentage
+                'category_mismatch': category_mismatch(candidate),
+                'expected_categories': expected_categories
             })
-    
-    # Sort by similarity (highest first)
-    matches.sort(key=lambda x: x['similarity'], reverse=True)
+
+    # Sort by similarity (highest first); at equal similarity, right-folder
+    # matches rank above wrong-folder ones
+    matches.sort(key=lambda x: (x['similarity'], not x['category_mismatch']), reverse=True)
     
     # Limit to max_results
     matches = matches[:max_results]

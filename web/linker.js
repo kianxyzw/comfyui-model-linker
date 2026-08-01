@@ -138,6 +138,19 @@ class LinkerManagerDialog extends ComfyDialog {
                 white-space: nowrap;
                 flex-shrink: 0;
             }
+            .ml-wrong-folder {
+                display: inline-flex;
+                align-items: center;
+                padding: 2px 6px;
+                background: rgba(230, 160, 30, 0.15);
+                border: 1px solid rgba(230, 160, 30, 0.5);
+                border-radius: 3px;
+                font-size: 10px;
+                color: #e6a01e;
+                white-space: nowrap;
+                cursor: help;
+            }
+
             .ml-category-chip {
                 display: inline-flex;
                 padding: 2px 6px;
@@ -868,9 +881,9 @@ class LinkerManagerDialog extends ComfyDialog {
         // Check if there are active downloads
         const activeCount = Object.keys(this.activeDownloads).length;
         
-        // Check if any model has a 100% confidence match
-        const hasAny100Match = missingModels.some(m => 
-            (m.matches || []).some(match => match.confidence === 100)
+        // Check if any model has a usable (right-folder) 100% confidence match
+        const hasAny100Match = missingModels.some(m =>
+            (m.matches || []).some(match => match.confidence === 100 && !match.category_mismatch)
         );
         
         // Show/hide Auto-Link button based on whether 100% matches exist
@@ -919,9 +932,9 @@ class LinkerManagerDialog extends ComfyDialog {
             const aFiltered = aMatches.filter(m => m.confidence >= 70);
             const bFiltered = bMatches.filter(m => m.confidence >= 70);
             
-            // Check if they have 100% matches
-            const aHas100 = aFiltered.some(m => m.confidence === 100);
-            const bHas100 = bFiltered.some(m => m.confidence === 100);
+            // Check if they have usable 100% matches
+            const aHas100 = aFiltered.some(m => m.confidence === 100 && !m.category_mismatch);
+            const bHas100 = bFiltered.some(m => m.confidence === 100 && !m.category_mismatch);
             
             // If one has 100% and the other doesn't, prioritize the one with 100%
             if (aHas100 && !bHas100) return -1;
@@ -949,9 +962,10 @@ class LinkerManagerDialog extends ComfyDialog {
             // Filter out matches below 70% confidence threshold
             const filteredMatches = allMatches.filter(m => m.confidence >= 70);
             
-            // Filter to only 100% matches if available, otherwise use filtered matches (>=70%)
-            const perfectMatches = filteredMatches.filter(m => m.confidence === 100);
-            const otherMatches = filteredMatches.filter(m => m.confidence < 100 && m.confidence >= 70);
+            // Filter to only usable 100% matches if available, otherwise use filtered matches (>=70%)
+            // Wrong-folder matches never count as perfect (the node can't load them)
+            const perfectMatches = filteredMatches.filter(m => m.confidence === 100 && !m.category_mismatch);
+            const otherMatches = filteredMatches.filter(m => !(m.confidence === 100 && !m.category_mismatch));
             
             // Match the same logic as renderMissingModel
             const matchesToShow = perfectMatches.length > 0 
@@ -1006,9 +1020,10 @@ class LinkerManagerDialog extends ComfyDialog {
         const filteredMatches = allMatches.filter(m => m.confidence >= 70);
         const hasMatches = filteredMatches.length > 0;
         
-        // Calculate 100% matches upfront (needed for download section)
-        const perfectMatches = filteredMatches.filter(m => m.confidence === 100);
-        const otherMatches = filteredMatches.filter(m => m.confidence < 100 && m.confidence >= 70);
+        // Calculate usable 100% matches upfront (needed for download section)
+        // Wrong-folder matches never count as perfect (the node can't load them)
+        const perfectMatches = filteredMatches.filter(m => m.confidence === 100 && !m.category_mismatch);
+        const otherMatches = filteredMatches.filter(m => !(m.confidence === 100 && !m.category_mismatch));
         
         // Format the missing filename for display
         const missingFilename = this.formatFilename(missing.original_path, 60);
@@ -1067,6 +1082,11 @@ class LinkerManagerDialog extends ComfyDialog {
                 
                 html += `<div class="ml-match-row ${isBestMatch ? 'ml-best-match' : ''}">`;
                 html += this.getConfidenceBadge(match.confidence);
+                if (match.category_mismatch) {
+                    const expected = (match.expected_categories || []).filter(Boolean).join(', ') || 'another folder';
+                    const foundIn = match.model?.category || 'unknown';
+                    html += `<span class="ml-wrong-folder" title="Found in '${foundIn}' but this node loads from '${expected}'. Move the file there, or link it knowing the node may fail to load it.">⚠ wrong folder</span>`;
+                }
                 html += `<span class="ml-match-filename" title="${formattedPath.full}">${formattedPath.display}</span>`;
                 html += `<button id="${buttonId}" class="ml-btn ${isBestMatch ? 'ml-btn-primary' : 'ml-btn-secondary'} ml-btn-sm">`;
                 html += `<span class="ml-btn-icon">🔗</span> Link`;
@@ -1076,7 +1096,7 @@ class LinkerManagerDialog extends ComfyDialog {
             
             // Add note if only showing 100% matches
             if (perfectMatches.length > 0 && otherMatches.length > 0) {
-                html += `<div class="ml-no-matches">${otherMatches.length} other match${otherMatches.length > 1 ? 'es' : ''} below 100%</div>`;
+                html += `<div class="ml-no-matches">${otherMatches.length} other match${otherMatches.length > 1 ? 'es' : ''} not shown</div>`;
             }
         } else if (allMatches.length > 0 && filteredMatches.length === 0) {
             html += `<div class="ml-no-matches">No matches above 70% confidence</div>`;
@@ -1382,7 +1402,7 @@ class LinkerManagerDialog extends ComfyDialog {
             const resolutions = [];
             for (const missing of missingModels) {
                 const matches = missing.matches || [];
-                const perfectMatch = matches.find((m) => m.confidence === 100);
+                const perfectMatch = matches.find((m) => m.confidence === 100 && !m.category_mismatch);
                 
                 if (perfectMatch && perfectMatch.model) {
                     resolutions.push({
@@ -1479,7 +1499,7 @@ class LinkerManagerDialog extends ComfyDialog {
             // - Do NOT have any 100% confidence local matches
             const toDownload = [];
             for (const missing of missingModels) {
-                const perfectMatches = (missing.matches || []).filter(m => m.confidence === 100);
+                const perfectMatches = (missing.matches || []).filter(m => m.confidence === 100 && !m.category_mismatch);
                 
                 // Skip if has 100% local match or no download source
                 if (perfectMatches.length > 0 || !missing.download_source?.url) {
@@ -1556,9 +1576,11 @@ class LinkerManagerDialog extends ComfyDialog {
             const matches = targetMissing.matches || [];
             const perfectMatch = matches.find(m => {
                 const matchFilename = m.filename || m.model?.filename || '';
-                // Check for exact match or 100% confidence
-                return m.confidence === 100 || 
-                       matchFilename.toLowerCase() === downloadedFilename.toLowerCase();
+                // Check for exact match or 100% confidence - but never
+                // auto-link a file from a folder the node can't load from
+                return !m.category_mismatch &&
+                       (m.confidence === 100 ||
+                        matchFilename.toLowerCase() === downloadedFilename.toLowerCase());
             });
 
             if (perfectMatch && perfectMatch.model) {

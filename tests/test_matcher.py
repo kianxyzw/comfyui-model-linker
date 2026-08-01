@@ -71,6 +71,36 @@ def test_fuzzy_still_ranks():
     assert matches[0]['confidence'] == 100.0  # separators normalized in filename comparison
 
 
+def test_category_mismatch_flagged():
+    # Issue #3: file exists but in a folder the node can't load from
+    candidates = [
+        {'filename': 'model.safetensors', 'path': '/m/loras/model.safetensors', 'category': 'loras'},
+        {'filename': 'model.safetensors', 'path': '/m/diff/model.safetensors', 'category': 'diffusion_models'},
+    ]
+    matches = find_matches('model.safetensors', candidates,
+                           expected_categories=['diffusion_models'])
+    assert len(matches) == 2
+    # Right-folder match must rank first at equal similarity
+    assert matches[0]['model']['category'] == 'diffusion_models'
+    assert matches[0]['category_mismatch'] is False
+    assert matches[1]['model']['category'] == 'loras'
+    assert matches[1]['category_mismatch'] is True
+
+
+def test_no_expected_categories_means_no_mismatch():
+    candidates = [{'filename': 'model.safetensors', 'path': '/m/loras/model.safetensors',
+                   'category': 'loras'}]
+    matches = find_matches('model.safetensors', candidates)
+    assert matches[0]['category_mismatch'] is False
+
+
+def test_unknown_candidate_category_not_flagged():
+    candidates = [{'filename': 'model.safetensors', 'path': '/m/model.safetensors'}]
+    matches = find_matches('model.safetensors', candidates,
+                           expected_categories=['diffusion_models'])
+    assert matches[0]['category_mismatch'] is False
+
+
 if __name__ == '__main__':
     failures = 0
     for name, fn in sorted(globals().items()):

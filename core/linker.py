@@ -246,13 +246,20 @@ def analyze_and_find_matches(
             candidates = [m for m in available_models if m.get('category') == category]
             # Also include other categories as fallback
             candidates.extend([m for m in available_models if m.get('category') != category])
-        
+
+        # Categories the node can actually load from (issue #3): prefer the
+        # analyzer's introspected list, fall back to the single category hint
+        expected_categories = missing.get('expected_categories')
+        if not expected_categories and category and category != 'unknown':
+            expected_categories = [category]
+
         # Find matches
         matches = find_matches(
             original_path,
             candidates,
             threshold=similarity_threshold,
-            max_results=max_matches_per_model
+            max_results=max_matches_per_model,
+            expected_categories=expected_categories
         )
         
         # Deduplicate matches by absolute path - same physical file should only appear once
