@@ -44,19 +44,101 @@ NODE_TYPE_TO_CATEGORY_HINTS = {
 def is_model_filename(value: Any) -> bool:
     """
     Check if a value looks like a model filename.
-    
+
     Args:
         value: The value to check
-        
+
     Returns:
         True if it looks like a model filename
     """
     if not isinstance(value, str):
         return False
-    
+
     # Check if it ends with a model extension
     _, ext = os.path.splitext(value.lower())
     return ext in MODEL_EXTENSIONS
+
+
+# Cache of node_type -> list of derived categories (or None when nothing
+# could be derived). Populated lazily; a failed introspection is cached too
+# so misbehaving custom nodes are only probed once per session.
+_NODE_MODEL_CATEGORIES_CACHE: Dict[str, Optional[List[str]]] = {}
+
+
+def get_node_model_categories(node_type: str) -> Optional[List[str]]:
+    """
+    Derive the model folder categories a node type loads from by
+    introspecting its INPUT_TYPES() combo option lists.
+
+    Custom loader nodes (Nunchaku, Hy3D, IPAdapter, ...) populate their file
+    combos from folder_paths.get_filename_list() at INPUT_TYPES() time, so
+    matching an input's option list back to a category's file list tells us
+    both that the input is a model field and which folder it loads from —
+    without hardcoding every node type (issue #5).
+
+    Returns:
+        List of category names, or None if nothing could be derived.
+    """
+    if node_type in _NODE_MODEL_CATEGORIES_CACHE:
+        return _NODE_MODEL_CATEGORIES_CACHE[node_type]
+
+    categories = None
+    try:
+        import nodes as comfy_nodes
+        node_class = comfy_nodes.NODE_CLASS_MAPPINGS.get(node_type)
+        if node_class is not None:
+            categories = _derive_categories_from_input_types(node_class)
+    except Exception as e:
+        logging.debug(f"Model Linker: could not introspect {node_type}: {e}")
+
+    _NODE_MODEL_CATEGORIES_CACHE[node_type] = categories
+    return categories
+
+
+def _derive_categories_from_input_types(node_class) -> Optional[List[str]]:
+    """Inspect a node class's INPUT_TYPES for combos of model filenames."""
+    input_types = node_class.INPUT_TYPES()
+    categories = []
+
+    for section in ('required', 'optional'):
+        inputs = input_types.get(section) or {}
+        for _name, spec in inputs.items():
+            options = spec[0] if isinstance(spec, (list, tuple)) and spec else None
+            if not isinstance(options, (list, tuple)) or not options:
+                continue
+            if not all(isinstance(opt, str) for opt in options):
+                continue
+            # A combo whose options are model filenames is a model field
+            if not any(is_model_filename(opt) for opt in options):
+                continue
+
+            category = _find_category_for_options(options)
+            if category and category not in categories:
+                categories.append(category)
+
+    return categories or None
+
+
+def _find_category_for_options(options) -> Optional[str]:
+    """Find the folder category whose file list contains all the options."""
+    if folder_paths is None:
+        return None
+
+    option_set = set(options)
+    best = None
+    for category in folder_paths.folder_names_and_paths.keys():
+        if category in ('custom_nodes', 'configs'):
+            continue
+        try:
+            files = set(folder_paths.get_filename_list(category))
+        except Exception:
+            continue
+        if option_set <= files:
+            # Prefer the tightest-fitting category when several qualify
+            if best is None or len(files) < best[1]:
+                best = (category, len(files))
+
+    return best[0] if best else None
 
 
 def try_resolve_model_path(value: str, categories: List[str] = None) -> Optional[tuple[str, str]]:
@@ -146,38 +228,44 @@ def get_node_model_info(node: Dict[str, Any]) -> List[Dict[str, Any]]:
     if not widgets_values:
         return model_refs
     
-    # Get category hints for this node type
+    # Get category hints for this node type: hardcoded table first, then
+    # INPUT_TYPES introspection for custom loader nodes (issue #5)
     category_hint = NODE_TYPE_TO_CATEGORY_HINTS.get(node_type)
-    categories_to_try = [category_hint] if category_hint else None
-    
+    if category_hint:
+        expected_categories = [category_hint]
+    else:
+        expected_categories = get_node_model_categories(node_type)
+    categories_to_try = expected_categories  # None -> try all categories
+
     # For each widget value, check if it looks like a model file
     for idx, value in enumerate(widgets_values):
         if not is_model_filename(value):
             continue
-        
+
         # Try to resolve the model path
         resolved = try_resolve_model_path(value, categories_to_try)
-        
+
         if resolved:
             category, full_path = resolved
             exists = os.path.exists(full_path)
         else:
             # If we can't resolve it, check if it at least looks like a model filename
             # This might be a missing model or a custom node's model
-            category = category_hint or 'unknown'
+            category = (expected_categories[0] if expected_categories else None) or 'unknown'
             full_path = None
             exists = False
-        
+
         model_refs.append({
             'node_id': node_id,
             'node_type': node_type,
             'widget_index': idx,
             'original_path': value,
             'category': category,
+            'expected_categories': expected_categories,
             'full_path': full_path,
             'exists': exists
         })
-    
+
     return model_refs
 
 
