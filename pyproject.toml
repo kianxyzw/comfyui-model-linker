@@ -11,8 +11,8 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/your-username/comfyui-model-linker"
-Documentation = "https://github.com/your-username/comfyui-model-linker#readme"
+Repository = "https://github.com/kianxyzw/comfyui-model-linker"
+Documentation = "https://github.com/kianxyzw/comfyui-model-linker#readme"
 
 [tool.comfy]
 PublisherId = "model-linker"
