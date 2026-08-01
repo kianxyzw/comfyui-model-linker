@@ -1331,7 +1331,7 @@ class LinkerManagerDialog extends ComfyDialog {
             
             if (data.success) {
                 // Update workflow in ComfyUI
-                await this.updateWorkflowInComfyUI(data.workflow);
+                await this.updateWorkflowInComfyUI(data.workflow, resolutions);
                 
                 // Show success notification
                 const modelName = resolvedModel.relative_path || resolvedModel.filename || 'model';
@@ -1420,8 +1420,8 @@ class LinkerManagerDialog extends ComfyDialog {
             
             if (resolveData.success) {
                 // Update workflow in ComfyUI
-                await this.updateWorkflowInComfyUI(resolveData.workflow);
-                
+                await this.updateWorkflowInComfyUI(resolveData.workflow, resolutions);
+
                 // Show success notification
                 this.showNotification(
                     `✓ Successfully linked ${resolutions.length} model${resolutions.length > 1 ? 's' : ''}!`,
@@ -1587,7 +1587,7 @@ class LinkerManagerDialog extends ComfyDialog {
                 if (resolveResponse.ok) {
                     const resolveData = await resolveResponse.json();
                     if (resolveData.success) {
-                        await this.updateWorkflowInComfyUI(resolveData.workflow);
+                        await this.updateWorkflowInComfyUI(resolveData.workflow, resolutions);
                         const count = resolutions.length;
                         this.showNotification(`✓ Auto-resolved: ${downloadedFilename} (${count} reference${count > 1 ? 's' : ''})`, 'success');
                         await this.loadWorkflowData(resolveData.workflow);
@@ -2104,37 +2104,40 @@ class LinkerManagerDialog extends ComfyDialog {
     }
 
     /**
-     * Update workflow in ComfyUI's UI/memory
-     * Updates the current workflow in place instead of creating a new tab
+     * Update workflow in ComfyUI's UI/memory.
+     *
+     * graph.configure() rebuilds the whole graph and fails silently on newer
+     * ComfyUI frontends, leaving an empty canvas (see PR #14, credit: gontz).
+     * When resolution details are available, only the affected widgets are
+     * updated in place; a full graph reload is the last-resort fallback.
      */
-    async updateWorkflowInComfyUI(workflow) {
+    async updateWorkflowInComfyUI(workflow, resolutions = null) {
         if (!app || !app.graph) {
             console.warn('Model Linker: Could not update workflow - app or app.graph not available');
             return;
         }
 
+        if (Array.isArray(resolutions) && resolutions.length > 0) {
+            const failed = resolutions.filter(res => !this.applyWidgetUpdate(workflow, res));
+            if (failed.length === 0) {
+                app.graph.setDirtyCanvas?.(true, true);
+                return;
+            }
+            console.warn(`Model Linker: ${failed.length} node(s) could not be updated in place, falling back to graph reload`);
+        }
+
         try {
-            // Method 1: Try to directly update the current graph using configure
-            // This is the most direct way to update in place
-            if (app.graph && typeof app.graph.configure === 'function') {
-                app.graph.configure(workflow);
-                return;
-            }
-
-            // Method 2: Try deserialize to update the graph in place
-            if (app.graph && typeof app.graph.deserialize === 'function') {
-                app.graph.deserialize(workflow);
-                return;
-            }
-
-            // Method 3: Use loadGraphData with explicit parameters to update current tab
-            // The key is to NOT create a new workflow - pass null or undefined for the workflow parameter
-            // clean=false means don't clear the graph first
-            // restore_view=false means don't restore the viewport
-            // workflow=null means update current workflow instead of creating new one
+            // Full reload fallback: loadGraphData is the supported API.
+            // clean=false: don't clear the graph first; restore_view=false:
+            // keep the viewport; workflow=null: update the current tab
+            // instead of creating a new one.
             if (app.loadGraphData) {
-                // Try with null as 4th parameter first
                 await app.loadGraphData(workflow, false, false, null);
+                return;
+            }
+
+            if (typeof app.graph.configure === 'function') {
+                app.graph.configure(workflow);
                 return;
             }
 
@@ -2144,6 +2147,93 @@ class LinkerManagerDialog extends ComfyDialog {
             // Don't throw - allow the workflow update to continue even if UI update fails
             // The backend has already updated the workflow data
         }
+    }
+
+    /**
+     * Apply a single resolution to the live graph without rebuilding it.
+     * Returns true if a live widget was updated.
+     */
+    applyWidgetUpdate(workflow, res) {
+        const widgetIndex = res.widget_index;
+
+        // The backend wrote ComfyUI's native relative path into the returned
+        // workflow JSON - read it back so the live widget gets the exact
+        // value validation expects (resolved_path is the absolute path).
+        const value = this.getWidgetValueFromWorkflow(workflow, res);
+        if (value === undefined) {
+            return false;
+        }
+
+        let updated = false;
+        for (const node of this.findLiveNodes(res)) {
+            if (node.widgets && node.widgets[widgetIndex]) {
+                const widget = node.widgets[widgetIndex];
+                widget.value = value;
+                widget.callback?.(value, app.canvas, node, null, null);
+                updated = true;
+            } else if (Array.isArray(node.widgets_values) && widgetIndex < node.widgets_values.length) {
+                node.widgets_values[widgetIndex] = value;
+                updated = true;
+            }
+            if (updated) {
+                node.setDirtyCanvas?.(true, true);
+            }
+        }
+        return updated;
+    }
+
+    /**
+     * Read the updated widget value for a resolution back out of the
+     * workflow JSON returned by the resolve API (mirrors the node search in
+     * core/workflow_updater.update_model_path).
+     */
+    getWidgetValueFromWorkflow(workflow, res) {
+        let nodes;
+        if (res.is_top_level === false && res.subgraph_id) {
+            const subgraphs = workflow?.definitions?.subgraphs || [];
+            nodes = subgraphs.find(sg => sg.id === res.subgraph_id)?.nodes || [];
+        } else {
+            nodes = workflow?.nodes || [];
+        }
+        const node = nodes.find(n => n.id === res.node_id);
+        const values = node?.widgets_values;
+        if (!Array.isArray(values) || res.widget_index >= values.length) {
+            return undefined;
+        }
+        return values[res.widget_index];
+    }
+
+    /**
+     * Find the live graph node(s) for a resolution. Top-level nodes come
+     * straight from app.graph; nodes inside a subgraph definition are looked
+     * up in every live (possibly nested) subgraph with that definition id.
+     */
+    findLiveNodes(res) {
+        const results = [];
+
+        if (res.is_top_level === false && res.subgraph_id) {
+            const stack = [app.graph];
+            const seen = new Set();
+            while (stack.length) {
+                const graph = stack.pop();
+                if (!graph || seen.has(graph)) continue;
+                seen.add(graph);
+
+                if (graph.id === res.subgraph_id) {
+                    const node = graph.getNodeById?.(res.node_id);
+                    if (node) results.push(node);
+                }
+
+                for (const n of (graph.nodes || graph._nodes || [])) {
+                    if (n.subgraph) stack.push(n.subgraph);
+                }
+            }
+        } else {
+            const node = app.graph.getNodeById?.(res.node_id);
+            if (node) results.push(node);
+        }
+
+        return results;
     }
 }
 
