@@ -133,6 +133,12 @@ def download_file(
         'error': None,
         'size': 0
     }
+
+    # Download to a .part file and rename on success. Writing to dest_path
+    # directly makes the half-downloaded file look like an installed model
+    # (workflow analysis stops reporting it missing mid-download) and leaves
+    # a corrupt file behind after a crash.
+    part_path = dest_path + '.part'
     
     # Initialize progress tracking with speed calculation
     start_time = time.time()
@@ -187,7 +193,7 @@ def download_file(
         
         # Download with progress and speed calculation
         cancelled = False
-        with open(dest_path, 'wb') as f:
+        with open(part_path, 'wb') as f:
             for chunk in response.iter_content(chunk_size=chunk_size):
                 # Check for cancellation
                 if download_id in cancelled_downloads:
@@ -246,18 +252,18 @@ def download_file(
                 download_progress[download_id]['status'] = 'cancelled'
             # Clean up partial/incomplete file
             try:
-                if os.path.exists(dest_path):
-                    os.remove(dest_path)
+                if os.path.exists(part_path):
+                    os.remove(part_path)
                     print(f"[Model Linker] Cancelled: {filename} - incomplete file deleted")
                 else:
                     print(f"[Model Linker] Cancelled: {filename} - no file to delete")
             except Exception as e:
-                print(f"[Model Linker] Warning: Could not delete incomplete file {dest_path}: {e}")
+                print(f"[Model Linker] Warning: Could not delete incomplete file {part_path}: {e}")
                 # Try harder on Windows - sometimes the file handle takes a moment to release
                 try:
                     time.sleep(0.5)  # time is already imported at module level
-                    if os.path.exists(dest_path):
-                        os.remove(dest_path)
+                    if os.path.exists(part_path):
+                        os.remove(part_path)
                         print(f"[Model Linker] Cancelled: {filename} - incomplete file deleted (delayed)")
                 except Exception:
                     pass
@@ -265,7 +271,9 @@ def download_file(
             cancelled_downloads.discard(download_id)
             return result
         
-        # Success
+        # Success - move the finished file into place
+        os.replace(part_path, dest_path)
+
         with download_lock:
             download_progress[download_id]['status'] = 'completed'
             download_progress[download_id]['progress'] = 100
@@ -306,22 +314,29 @@ def download_file(
         
         # Clean up partial file
         try:
-            if os.path.exists(dest_path):
-                os.remove(dest_path)
+            if os.path.exists(part_path):
+                os.remove(part_path)
         except:
             pass
-            
+
     except Exception as e:
         error_msg = str(e)
         with download_lock:
             download_progress[download_id]['status'] = 'error'
             download_progress[download_id]['error'] = error_msg
         result['error'] = error_msg
-        
+
         # CLI error log
         print(f"[Model Linker] ✗ Download failed: {os.path.basename(dest_path)}")
         print(f"[Model Linker] Error: {error_msg}")
         logger.error(f"Download error: {e}", exc_info=True)
+
+        # Clean up partial file
+        try:
+            if os.path.exists(part_path):
+                os.remove(part_path)
+        except:
+            pass
     
     return result
 

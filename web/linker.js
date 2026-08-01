@@ -876,46 +876,54 @@ class LinkerManagerDialog extends ComfyDialog {
      */
     displayMissingModels(container, data) {
         const missingModels = data.missing_models || [];
-        const totalMissing = data.total_missing || 0;
-        
+
         // Check if there are active downloads
         const activeCount = Object.keys(this.activeDownloads).length;
-        
+
+        // Models that are still downloading may no longer be reported
+        // missing by analysis (a file can already be on disk). Keep their
+        // cards on screen anyway so download progress stays visible instead
+        // of collapsing the whole view to a status message.
+        const displayModels = [...missingModels];
+        for (const info of Object.values(this.activeDownloads)) {
+            const downloading = info.missing;
+            if (!downloading) continue;
+            const alreadyListed = displayModels.some(m =>
+                m.node_id === downloading.node_id && m.widget_index === downloading.widget_index);
+            if (!alreadyListed) {
+                displayModels.push(downloading);
+            }
+        }
+        const totalShown = displayModels.length;
+
         // Check if any model has a usable (right-folder) 100% confidence match
         const hasAny100Match = missingModels.some(m =>
             (m.matches || []).some(match => match.confidence === 100 && !match.category_mismatch)
         );
-        
+
         // Show/hide Auto-Link button based on whether 100% matches exist
         if (this.autoResolveButton) {
             this.autoResolveButton.style.display = hasAny100Match ? 'inline-flex' : 'none';
         }
-        
-        // Hide download all button if no missing models
+
+        // Hide download all button if nothing is missing or downloading
+        // (while downloads run it doubles as the Cancel All button)
         if (this.downloadAllButton) {
-            this.downloadAllButton.style.display = totalMissing > 0 ? 'inline-flex' : 'none';
+            this.downloadAllButton.style.display = totalShown > 0 ? 'inline-flex' : 'none';
         }
 
-        if (totalMissing === 0 && activeCount === 0) {
+        if (totalShown === 0) {
             container.innerHTML = this.renderStatusMessage('All models are available! No missing models found.', 'success');
-            return;
-        }
-        
-        // If no missing models but downloads are active, show a waiting message
-        if (totalMissing === 0 && activeCount > 0) {
-            container.innerHTML = this.renderStatusMessage(
-                `${activeCount} download${activeCount > 1 ? 's' : ''} in progress. Models will be auto-linked when complete.`,
-                'info'
-            );
             return;
         }
 
         // Summary header with count
+        const missingCount = missingModels.length;
         let html = `
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--ml-border);">
                 <div>
                     <span style="font-size: 15px; font-weight: 600; color: var(--ml-text);">
-                        ${totalMissing} Missing Model${totalMissing > 1 ? 's' : ''}
+                        ${missingCount} Missing Model${missingCount !== 1 ? 's' : ''}
                     </span>
                     ${activeCount > 0 ? `<span style="margin-left: 12px; color: var(--ml-text-muted); font-size: 12px;">${activeCount} downloading</span>` : ''}
                 </div>
@@ -924,7 +932,7 @@ class LinkerManagerDialog extends ComfyDialog {
         html += '<div style="display: flex; flex-direction: column; gap: 8px;">';
 
         // Sort missing models: those with 100% confidence matches first, then others
-        const sortedMissingModels = missingModels.sort((a, b) => {
+        const sortedMissingModels = displayModels.sort((a, b) => {
             const aMatches = a.matches || [];
             const bMatches = b.matches || [];
             
