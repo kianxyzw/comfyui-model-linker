@@ -36,6 +36,8 @@ NODE_TYPE_TO_CATEGORY_HINTS = {
     'UpscaleModelLoader': 'upscale_models',
     'HypernetworkLoader': 'hypernetworks',
     'EmbeddingLoader': 'embeddings',
+    'StyleModelLoader': 'style_models',
+    'DiffusersLoader': 'diffusers',
 }
 
 
