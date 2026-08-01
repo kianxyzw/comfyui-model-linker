@@ -31,15 +31,6 @@ https://github.com/user-attachments/assets/fedf3645-aa66-49f7-b01d-8c3b5127faf4
 4. Link individual matches, use **Auto-Link** for all 100% matches, or **Download All Missing** for models with known sources
 5. Save your workflow when ready
 
-## Development
-
-Unit tests live in `tests/` and run without a ComfyUI install:
-
-```
-python tests/test_matcher.py
-python tests/test_workflow_analyzer.py
-```
-
 ## License
 
 [MIT](LICENSE)
