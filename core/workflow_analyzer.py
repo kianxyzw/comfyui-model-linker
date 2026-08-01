@@ -76,6 +76,16 @@ def try_resolve_model_path(value: str, categories: List[str] = None) -> Optional
     # Remove any path separators that might indicate an absolute path prefix
     # Workflows should store relative paths, but handle both cases
     filename = value.strip()
+
+    # Workflows authored on another OS may use the opposite path separator;
+    # folder_paths won't resolve those, so also try separator-swapped variants
+    variants = [filename]
+    if os.sep == '\\':
+        swapped = filename.replace('/', '\\')
+    else:
+        swapped = filename.replace('\\', '/')
+    if swapped != filename:
+        variants.append(swapped)
     
     # Ensure folder_paths is available
     global folder_paths
@@ -96,13 +106,14 @@ def try_resolve_model_path(value: str, categories: List[str] = None) -> Optional
     categories = [c for c in categories if c not in skip_categories]
     
     for category in categories:
-        try:
-            full_path = folder_paths.get_full_path(category, filename)
-            if full_path and os.path.exists(full_path):
-                return (category, full_path)
-        except Exception:
-            continue
-    
+        for variant in variants:
+            try:
+                full_path = folder_paths.get_full_path(category, variant)
+                if full_path and os.path.exists(full_path):
+                    return (category, full_path)
+            except Exception:
+                continue
+
     return None
 
 

@@ -5,9 +5,34 @@ Implements fuzzy string matching to find similar model names.
 """
 
 import os
+import posixpath
 import re
 from typing import List, Dict, Tuple
 from difflib import SequenceMatcher
+
+
+def normalize_path_separators(path: str) -> str:
+    """
+    Convert backslashes to forward slashes.
+
+    Workflows are shared across OSes, so a path authored on Windows
+    (subdir\\model.safetensors) must compare equal to the same path on
+    Linux (subdir/model.safetensors). os.path functions can't do this:
+    on Linux a backslash is a regular filename character.
+    """
+    return path.replace('\\', '/') if path else ''
+
+
+def normalize_path(path: str) -> str:
+    """Normalize a path for cross-OS comparison (separators + redundant parts)."""
+    if not path:
+        return ''
+    return posixpath.normpath(normalize_path_separators(path))
+
+
+def extract_filename(path: str) -> str:
+    """Get the final path component regardless of separator style."""
+    return normalize_path_separators(path).rstrip('/').rsplit('/', 1)[-1]
 
 
 def normalize_filename(filename: str) -> str:
@@ -98,13 +123,13 @@ def find_matches(
     """
     matches = []
     
-    # Normalize path separators in target_model based on current OS
-    # This ensures paths with \ vs / separators are treated as identical
-    target_model_normalized = os.path.normpath(target_model) if target_model else ''
-    
+    # Normalize path separators to forward slashes so Windows- and
+    # Linux-authored workflow paths compare identically on either OS
+    target_model_normalized = normalize_path(target_model)
+
     # Extract just the filename from target_model (remove any subfolder paths)
     # target_model might be just a filename or might include subfolder paths
-    target_filename = os.path.basename(target_model_normalized)
+    target_filename = extract_filename(target_model)
     
     # Normalize target filename once for exact match comparisons
     target_norm = normalize_filename(target_filename)
@@ -117,27 +142,24 @@ def find_matches(
         # If no filename key, try to extract from path or relative_path
         if not candidate_filename:
             if candidate_path:
-                candidate_filename = os.path.basename(candidate_path)
-        
+                candidate_filename = extract_filename(candidate_path)
+
         if not candidate_filename:
             continue
-        
-        # Normalize candidate path separators based on current OS
-        # This ensures paths with \ vs / separators are treated as identical
-        candidate_path_normalized = os.path.normpath(candidate_path) if candidate_path else ''
+
+        # Normalize candidate paths for cross-OS comparison
+        candidate_path_normalized = normalize_path(candidate_path)
         candidate_relative_path = candidate.get('relative_path', '')
-        candidate_relative_path_normalized = os.path.normpath(candidate_relative_path) if candidate_relative_path else ''
-        
+        candidate_relative_path_normalized = normalize_path(candidate_relative_path)
+
         # Check if normalized paths are identical (100% match)
         # This handles cases where paths differ only by separator (e.g., path/to/model vs path\to\model)
-        # Compare both absolute paths and relative paths
+        # The target is usually relative, so check both the absolute and relative candidate paths
         path_match = False
-        if candidate_path_normalized and target_model_normalized:
-            if candidate_path_normalized == target_model_normalized:
+        if target_model_normalized:
+            if candidate_path_normalized and candidate_path_normalized == target_model_normalized:
                 path_match = True
-        elif candidate_relative_path_normalized and target_model_normalized:
-            # Also check if relative path matches the target (which might be relative)
-            if candidate_relative_path_normalized == target_model_normalized:
+            elif candidate_relative_path_normalized and candidate_relative_path_normalized == target_model_normalized:
                 path_match = True
         
         if path_match:
