@@ -49,8 +49,8 @@ class LinkerManagerDialog extends ComfyDialog {
                 top: "50%",
                 left: "50%",
                 transform: "translate(-50%, -50%)",
-                width: "1100px",
-                height: "700px",
+                width: "1400px",
+                height: "750px",
                 maxWidth: "95vw",
                 maxHeight: "95vh",
                 backgroundColor: "var(--comfy-menu-bg, #202020)",
@@ -115,7 +115,14 @@ class LinkerManagerDialog extends ComfyDialog {
             .ml-card:hover {
                 background: #303030;
             }
-            
+            .ml-card.ml-card-resolved {
+                background: rgba(76, 175, 80, 0.08);
+                border: 1px solid rgba(76, 175, 80, 0.3);
+            }
+            .ml-card.ml-card-resolved:hover {
+                background: rgba(76, 175, 80, 0.12);
+            }
+
             /* Card Header */
             .ml-card-header {
                 display: flex;
@@ -375,9 +382,7 @@ class LinkerManagerDialog extends ComfyDialog {
             .ml-match-filename {
                 flex: 1;
                 min-width: 0;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                white-space: nowrap;
+                word-break: break-all;
                 font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
                 font-size: 12px;
                 color: var(--ml-text);
@@ -458,6 +463,7 @@ class LinkerManagerDialog extends ComfyDialog {
                 font-size: 12px;
                 color: var(--ml-text-muted);
                 margin-top: 6px;
+                word-break: break-all;
             }
             .ml-download-source {
                 color: var(--ml-accent);
@@ -825,12 +831,14 @@ class LinkerManagerDialog extends ComfyDialog {
             $el("span", { textContent: " Download All Missing" })
         ]);
         
-        // Auto-resolve button (secondary style)
-        this.autoResolveButton = $el("button.ml-btn.ml-btn-secondary", {
+        // Auto-resolve button (green - only shown when 100% matches exist)
+        this.autoResolveButton = $el("button.ml-btn.ml-btn-primary", {
             onclick: () => this.autoResolve100Percent(),
             style: {
                 padding: "10px 20px",
-                fontSize: "13px"
+                fontSize: "13px",
+                background: "#4CAF50",
+                color: "white"
             }
         }, [
             $el("span.ml-btn-icon", { textContent: "🔗" }),
@@ -1518,8 +1526,8 @@ class LinkerManagerDialog extends ComfyDialog {
         const perfectMatches = filteredMatches.filter(m => m.confidence === 100 && !m.category_mismatch);
         const otherMatches = filteredMatches.filter(m => !(m.confidence === 100 && !m.category_mismatch));
         
-        // Format the missing filename for display
-        const missingFilename = this.formatFilename(missing.original_path, 60);
+        // Show the missing filename in full (word-break handles long paths)
+        const missingFilename = missing.original_path || 'Unknown';
         
         // Determine node info for the chip
         const isSubgraphNode = missing.node_type && missing.node_type.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
@@ -1532,12 +1540,13 @@ class LinkerManagerDialog extends ComfyDialog {
             nodeLabel = missing.node_type || 'Node';
         }
         
-        // Start card
-        let html = `<div class="ml-card">`;
-        
+        // Start card - green highlight when a usable 100% match exists
+        const hasExactMatch = perfectMatches.length > 0;
+        let html = `<div class="ml-card ${hasExactMatch ? 'ml-card-resolved' : ''}">`;
+
         // Card Header: Filename as headline + node chip
         html += `<div class="ml-card-header">`;
-        html += `<h3 class="ml-card-title" title="${missingFilename.full}">${missingFilename.display}</h3>`;
+        html += `<h3 class="ml-card-title">${missingFilename}</h3>`;
         html += `<div style="display: flex; align-items: center; gap: 6px;">`;
         if (missing.category) {
             html += `<span class="ml-category-chip">${missing.category}</span>`;
@@ -1575,7 +1584,6 @@ class LinkerManagerDialog extends ComfyDialog {
                 const match = sortedMatches[matchIndex];
                 const buttonId = `resolve-${missing.node_id}-${missing.widget_index}-${matchIndex}`;
                 const matchPath = match.model?.relative_path || match.filename || '';
-                const formattedPath = this.formatPath(matchPath, 45);
                 const isBestMatch = matchIndex === 0 && match.confidence >= 95;
                 
                 html += `<div class="ml-match-row ${isBestMatch ? 'ml-best-match' : ''}">`;
@@ -1585,7 +1593,7 @@ class LinkerManagerDialog extends ComfyDialog {
                     const foundIn = match.model?.category || 'unknown';
                     html += `<span class="ml-wrong-folder" title="Found in '${foundIn}' but this node loads from '${expected}'. Move the file there, or link it knowing the node may fail to load it.">⚠ wrong folder</span>`;
                 }
-                html += `<span class="ml-match-filename" title="${formattedPath.full}">${formattedPath.display}</span>`;
+                html += `<span class="ml-match-filename">${matchPath}</span>`;
                 html += `<button id="${buttonId}" class="ml-btn ${isBestMatch ? 'ml-btn-primary' : 'ml-btn-secondary'} ml-btn-sm">`;
                 html += `<span class="ml-btn-icon">🔗</span> Link`;
                 html += `</button>`;
@@ -1627,7 +1635,6 @@ class LinkerManagerDialog extends ComfyDialog {
             };
             const sourceLabel = isFromWorkflow ? 'Workflow' : (sourceLabels[downloadSource.source] || 'Online');
             const downloadFilename = downloadSource.filename || filename;
-            const formattedDownloadName = this.formatFilename(downloadFilename, 45);
             
             // Format file size
             let sizeDisplay = '';
@@ -1647,9 +1654,9 @@ class LinkerManagerDialog extends ComfyDialog {
             html += `<span class="ml-download-source">${isFromWorkflow ? 'URL from workflow' : sourceLabel}</span>`;
             const modelCardUrl = this.getModelCardUrl(downloadSource.url);
             if (modelCardUrl) {
-                html += `<br><a href="${modelCardUrl}" target="_blank" rel="noopener noreferrer" class="ml-link" title="Open model card">${formattedDownloadName.display}</a>`;
+                html += `<br><a href="${modelCardUrl}" target="_blank" rel="noopener noreferrer" class="ml-link" style="word-break: break-all;" title="Open model card">${downloadFilename}</a>`;
             } else {
-                html += `<br><span title="${formattedDownloadName.full}">${formattedDownloadName.display}</span>`;
+                html += `<br><span style="word-break: break-all;">${downloadFilename}</span>`;
             }
             html += `</div>`;
             html += `</div>`;
