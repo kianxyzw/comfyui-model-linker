@@ -1905,22 +1905,28 @@ class LinkerManagerDialog extends ComfyDialog {
             const analyzeData = await analyzeResponse.json();
             const missingModels = analyzeData.missing_models || [];
 
-            // Collect all 100% matches
+            // Collect all 100% matches - one resolution per referencing node,
+            // so a model shared by several nodes is fixed everywhere in one pass
             const resolutions = [];
+            let modelCount = 0;
             for (const missing of missingModels) {
                 const matches = missing.matches || [];
                 const perfectMatch = matches.find((m) => m.confidence === 100 && !m.category_mismatch);
-                
+
                 if (perfectMatch && perfectMatch.model) {
-                    resolutions.push({
-                        node_id: missing.node_id,
-                        widget_index: missing.widget_index,
-                        resolved_path: perfectMatch.model.path,
-                        category: missing.category,
-                        resolved_model: perfectMatch.model,
-                        subgraph_id: missing.subgraph_id,  // Include subgraph_id for subgraph nodes
-                        is_top_level: missing.is_top_level  // True for top-level nodes, False for nodes in subgraph definitions
-                    });
+                    modelCount++;
+                    const nodeRefs = missing.all_node_refs || [missing];
+                    for (const ref of nodeRefs) {
+                        resolutions.push({
+                            node_id: ref.node_id,
+                            widget_index: ref.widget_index,
+                            resolved_path: perfectMatch.model.path,
+                            category: ref.category,
+                            resolved_model: perfectMatch.model,
+                            subgraph_id: ref.subgraph_id,  // Include subgraph_id for subgraph nodes
+                            is_top_level: ref.is_top_level  // True for top-level nodes, False for nodes in subgraph definitions
+                        });
+                    }
                 }
             }
 
@@ -1950,8 +1956,11 @@ class LinkerManagerDialog extends ComfyDialog {
                 await this.updateWorkflowInComfyUI(resolveData.workflow, resolutions);
 
                 // Show success notification
+                const refNote = resolutions.length !== modelCount
+                    ? ` (${resolutions.length} node references)`
+                    : '';
                 this.showNotification(
-                    `✓ Successfully linked ${resolutions.length} model${resolutions.length > 1 ? 's' : ''}!`,
+                    `✓ Successfully linked ${modelCount} model${modelCount > 1 ? 's' : ''}${refNote}!`,
                     'success'
                 );
                 
@@ -3101,57 +3110,6 @@ class ModelLinker {
             }
         }
         return count;
-    }
-
-    /**
-     * Update nodes directly in the graph without triggering a full workflow reload
-     * This prevents the Missing Models popup from closing
-     */
-    updateNodesDirectly(resolutions) {
-        if (!app?.graph) {
-            console.warn('Model Linker: Cannot update nodes - graph not available');
-            return;
-        }
-
-        for (const resolution of resolutions) {
-            const nodeId = resolution.node_id;
-            const widgetIndex = resolution.widget_index;
-            const resolvedPath = resolution.resolved_path;
-
-            // Find the node in the graph
-            const node = app.graph.getNodeById(nodeId);
-            if (!node) {
-                console.warn(`Model Linker: Node ${nodeId} not found in graph`);
-                continue;
-            }
-
-            // Update the widget value
-            if (node.widgets && node.widgets[widgetIndex]) {
-                const widget = node.widgets[widgetIndex];
-                widget.value = resolvedPath;
-                
-                // Trigger widget callback if it exists
-                if (widget.callback) {
-                    widget.callback(resolvedPath, app.graph, node, null, null);
-                }
-                
-                console.log(`Model Linker: Updated node ${nodeId} widget ${widgetIndex} to ${resolvedPath}`);
-            } else if (node.widgets_values) {
-                // Fallback: update widgets_values array directly
-                node.widgets_values[widgetIndex] = resolvedPath;
-                console.log(`Model Linker: Updated node ${nodeId} widgets_values[${widgetIndex}] to ${resolvedPath}`);
-            }
-
-            // Mark node as dirty to trigger redraw
-            if (node.setDirtyCanvas) {
-                node.setDirtyCanvas(true, true);
-            }
-        }
-
-        // Trigger canvas redraw
-        if (app.graph.setDirtyCanvas) {
-            app.graph.setDirtyCanvas(true, true);
-        }
     }
 
     /**
