@@ -1084,7 +1084,7 @@ class LinkerManagerDialog extends ComfyDialog {
     renderAllModelRow(entry, index) {
         const formatted = this.formatFilename(entry.original_path || '', 50);
         const refs = entry.all_node_refs || [entry];
-        const extraRefs = refs.length > 1 ? ` (+${refs.length - 1})` : '';
+        const jumpLabel = refs.length > 1 ? `↗ Jump to node (${refs.length})` : '↗ Jump to node';
         const nodeLabel = this.getNodeLabel(entry);
 
         let html = `<div class="ml-all-row">`;
@@ -1092,7 +1092,7 @@ class LinkerManagerDialog extends ComfyDialog {
         if (entry.__missing) {
             html += `<span class="ml-missing-badge">missing</span>`;
         }
-        html += `<span class="ml-node-chip ml-node-chip-clickable" data-jump-index="${index}" title="Jump to node">${nodeLabel} #${entry.node_id}${extraRefs}</span>`;
+        html += `<span class="ml-node-chip ml-node-chip-clickable" data-jump-index="${index}" title="${nodeLabel} #${entry.node_id}${refs.length > 1 ? ` - ${refs.length} nodes use this model, click again for the next one` : ''}">${jumpLabel}</span>`;
         if (entry.__missing) {
             html += `<button class="ml-btn ml-btn-secondary ml-btn-sm" data-fix-missing="1" title="Resolve it in the Missing tab">Fix</button>`;
         } else {
@@ -1552,11 +1552,11 @@ class LinkerManagerDialog extends ComfyDialog {
             html += `<span class="ml-category-chip">${missing.category}</span>`;
         }
         const refCount = (missing.all_node_refs || [missing]).length;
-        const extraRefs = refCount > 1 ? ` (+${refCount - 1})` : '';
+        const jumpLabel = refCount > 1 ? `↗ Jump to node (${refCount})` : '↗ Jump to node';
         const jumpTitle = refCount > 1
-            ? `Jump to node - ${refCount} nodes use this model, click again for the next one`
-            : 'Jump to node';
-        html += `<span id="jump-${missing.node_id}-${missing.widget_index}" class="ml-node-chip ml-node-chip-clickable" title="${jumpTitle}">${nodeLabel} #${missing.node_id}${extraRefs}</span>`;
+            ? `${nodeLabel} #${missing.node_id} - ${refCount} nodes use this model, click again for the next one`
+            : `${nodeLabel} #${missing.node_id}`;
+        html += `<span id="jump-${missing.node_id}-${missing.widget_index}" class="ml-node-chip ml-node-chip-clickable" title="${jumpTitle}">${jumpLabel}</span>`;
         html += `</div>`;
         html += `</div>`;
         
