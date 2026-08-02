@@ -138,6 +138,14 @@ class LinkerManagerDialog extends ComfyDialog {
                 white-space: nowrap;
                 flex-shrink: 0;
             }
+            .ml-node-chip-clickable {
+                cursor: pointer;
+                transition: background 0.15s, color 0.15s;
+            }
+            .ml-node-chip-clickable:hover {
+                background: #4a4a4a;
+                color: var(--ml-text);
+            }
             .ml-wrong-folder {
                 display: inline-flex;
                 align-items: center;
@@ -757,6 +765,54 @@ class LinkerManagerDialog extends ComfyDialog {
     }
 
     /**
+     * Jump the canvas to a node referencing a missing model (issue #9).
+     * Repeated clicks cycle through all nodes that use the model. Nodes that
+     * live inside a subgraph definition can't be centered directly, so the
+     * jump targets their subgraph instance node instead.
+     */
+    jumpToNode(missing) {
+        if (!app?.graph || !app?.canvas) {
+            this.showNotification('Canvas not available', 'error');
+            return;
+        }
+
+        const refs = missing.all_node_refs || [missing];
+        missing._jumpIndex = ((missing._jumpIndex ?? -1) + 1) % refs.length;
+        const ref = refs[missing._jumpIndex];
+
+        let targetId = ref.node_id;
+        if (ref.is_top_level === false && ref.subgraph_id) {
+            // Node is inside a subgraph definition - jump to the instance
+            const instance = (app.graph._nodes || []).find(n => n.type === ref.subgraph_id);
+            if (!instance) {
+                this.showNotification(`Node is inside subgraph "${ref.subgraph_name || ref.subgraph_id}" - no instance found on canvas`, 'error');
+                return;
+            }
+            targetId = instance.id;
+        }
+
+        const node = app.graph.getNodeById(targetId);
+        if (!node) {
+            this.showNotification(`Node #${targetId} not found on canvas`, 'error');
+            return;
+        }
+
+        // Close the dialog so the canvas is actually visible, then center
+        this.close();
+        app.canvas.centerOnNode(node);
+        if (typeof app.canvas.selectNode === 'function') {
+            app.canvas.selectNode(node);
+        } else if (typeof app.canvas.selectNodes === 'function') {
+            app.canvas.selectNodes([node]);
+        }
+        app.canvas.setDirty(true, true);
+
+        if (ref.is_top_level === false && ref.subgraph_name) {
+            this.showNotification(`Model is used inside subgraph "${ref.subgraph_name}" - jumped to its instance node`, 'info');
+        }
+    }
+
+    /**
      * Load workflow data and display missing models
      */
     async loadWorkflowData(workflow = null) {
@@ -1015,6 +1071,14 @@ class LinkerManagerDialog extends ComfyDialog {
                     this.searchOnline(missing);
                 });
             }
+
+            // Attach jump-to-node listener on the node chip
+            const jumpChip = container.querySelector(`#jump-${missing.node_id}-${missing.widget_index}`);
+            if (jumpChip) {
+                jumpChip.addEventListener('click', () => {
+                    this.jumpToNode(missing);
+                });
+            }
         });
     }
 
@@ -1057,7 +1121,12 @@ class LinkerManagerDialog extends ComfyDialog {
         if (missing.category) {
             html += `<span class="ml-category-chip">${missing.category}</span>`;
         }
-        html += `<span class="ml-node-chip">${nodeLabel} #${missing.node_id}</span>`;
+        const refCount = (missing.all_node_refs || [missing]).length;
+        const extraRefs = refCount > 1 ? ` (+${refCount - 1})` : '';
+        const jumpTitle = refCount > 1
+            ? `Jump to node - ${refCount} nodes use this model, click again for the next one`
+            : 'Jump to node';
+        html += `<span id="jump-${missing.node_id}-${missing.widget_index}" class="ml-node-chip ml-node-chip-clickable" title="${jumpTitle}">${nodeLabel} #${missing.node_id}${extraRefs}</span>`;
         html += `</div>`;
         html += `</div>`;
         
