@@ -161,14 +161,15 @@ class LinkerManagerDialog extends ComfyDialog {
             }
             .ml-tab-bar {
                 display: flex;
-                gap: 4px;
-                padding: 6px 20px 0 20px;
+                gap: 6px;
+                padding: 8px 20px;
                 border-bottom: 1px solid var(--ml-border, #444);
                 background: var(--comfy-menu-bg, #202020);
             }
             .ml-tab {
                 background: none;
                 border: none;
+                border-radius: 4px;
                 border-bottom: 2px solid transparent;
                 color: var(--ml-text-muted, #999);
                 padding: 8px 14px;
@@ -177,6 +178,7 @@ class LinkerManagerDialog extends ComfyDialog {
             }
             .ml-tab:hover {
                 color: var(--ml-text, #ddd);
+                background: #2c2c2c;
             }
             .ml-tab-active {
                 color: var(--ml-text, #fff);
