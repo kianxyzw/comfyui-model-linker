@@ -16,6 +16,11 @@ class LinkerManagerDialog extends ComfyDialog {
         this.currentWorkflow = null;
         this.missingModels = [];
         this.activeDownloads = {};  // Track active downloads
+        this.activeTab = null;      // 'missing' | 'all'; null -> pick default on load
+        this.analyzeData = null;    // Last /model_linker/analyze response
+        this.allModelEntries = [];  // Flattened entries backing the All models tab
+        this.collapsedGroups = {};  // Category collapse state in the All models tab
+        this.allModelsFilter = '';  // Filter text in the All models tab
         this.boundHandleOutsideClick = this.handleOutsideClick.bind(this);
         
         // Inject global styles for the redesigned UI
@@ -60,6 +65,7 @@ class LinkerManagerDialog extends ComfyDialog {
             }
         }, [
             this.createHeader(),
+            this.createTabBar(),
             this.createContent(),
             this.createFooter()
         ]);
@@ -145,6 +151,115 @@ class LinkerManagerDialog extends ComfyDialog {
             .ml-node-chip-clickable:hover {
                 background: #4a4a4a;
                 color: var(--ml-text);
+            }
+            .ml-tab-bar {
+                display: flex;
+                gap: 4px;
+                padding: 6px 20px 0 20px;
+                border-bottom: 1px solid var(--ml-border, #444);
+                background: var(--comfy-menu-bg, #202020);
+            }
+            .ml-tab {
+                background: none;
+                border: none;
+                border-bottom: 2px solid transparent;
+                color: var(--ml-text-muted, #999);
+                padding: 8px 14px;
+                cursor: pointer;
+                font-size: 13px;
+            }
+            .ml-tab:hover {
+                color: var(--ml-text, #ddd);
+            }
+            .ml-tab-active {
+                color: var(--ml-text, #fff);
+                border-bottom-color: var(--ml-accent, #4a90d9);
+                font-weight: 600;
+            }
+            .ml-all-toolbar {
+                margin-bottom: 12px;
+            }
+            .ml-filter-input {
+                width: 100%;
+                padding: 8px 10px;
+                background: #2a2a2a;
+                border: 1px solid var(--ml-border, #444);
+                border-radius: 4px;
+                color: var(--ml-text, #ddd);
+                font-size: 13px;
+                box-sizing: border-box;
+            }
+            .ml-group-header {
+                padding: 8px 4px;
+                margin-top: 8px;
+                font-size: 12px;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                color: var(--ml-text-muted, #999);
+                cursor: pointer;
+                user-select: none;
+            }
+            .ml-group-header:hover {
+                color: var(--ml-text, #ddd);
+            }
+            .ml-all-row {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                padding: 6px 8px;
+                border-radius: 4px;
+            }
+            .ml-all-row:hover {
+                background: #2c2c2c;
+            }
+            .ml-all-row .ml-match-filename {
+                flex: 1;
+            }
+            .ml-missing-badge {
+                padding: 2px 6px;
+                background: rgba(220, 60, 60, 0.15);
+                border: 1px solid rgba(220, 60, 60, 0.5);
+                border-radius: 3px;
+                font-size: 10px;
+                color: #e06060;
+                white-space: nowrap;
+            }
+            .ml-swap-panel {
+                margin: 4px 8px 8px 8px;
+                padding: 8px;
+                background: #262626;
+                border: 1px solid var(--ml-border, #444);
+                border-radius: 4px;
+            }
+            .ml-swap-search {
+                margin-bottom: 8px;
+            }
+            .ml-swap-results {
+                max-height: 260px;
+                overflow-y: auto;
+            }
+            .ml-swap-row {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                padding: 4px 6px;
+                border-radius: 3px;
+            }
+            .ml-swap-row:hover {
+                background: #303030;
+            }
+            .ml-swap-row .ml-match-filename {
+                flex: 1;
+            }
+            .ml-current-badge {
+                padding: 2px 6px;
+                background: rgba(80, 160, 80, 0.15);
+                border: 1px solid rgba(80, 160, 80, 0.5);
+                border-radius: 3px;
+                font-size: 10px;
+                color: #7cc47c;
+                white-space: nowrap;
             }
             .ml-wrong-folder {
                 display: inline-flex;
@@ -644,6 +759,45 @@ class LinkerManagerDialog extends ComfyDialog {
         ]);
     }
     
+    createTabBar() {
+        this.missingTabBtn = $el("button.ml-tab.ml-tab-active", {
+            textContent: "Missing",
+            onclick: () => this.switchTab('missing')
+        });
+        this.allTabBtn = $el("button.ml-tab", {
+            textContent: "All models",
+            onclick: () => this.switchTab('all')
+        });
+        return $el("div.ml-tab-bar", {}, [this.missingTabBtn, this.allTabBtn]);
+    }
+
+    switchTab(tab) {
+        if (this.activeTab === tab) return;
+        this.activeTab = tab;
+        this.renderActiveTab();
+    }
+
+    updateTabBar() {
+        if (!this.missingTabBtn || !this.allTabBtn) return;
+        const missing = this.analyzeData?.missing_models?.length ?? 0;
+        const resolved = this.analyzeData?.resolved_models?.length ?? 0;
+        this.missingTabBtn.textContent = `Missing (${missing})`;
+        this.allTabBtn.textContent = `All models (${missing + resolved})`;
+        this.missingTabBtn.classList.toggle('ml-tab-active', this.activeTab !== 'all');
+        this.allTabBtn.classList.toggle('ml-tab-active', this.activeTab === 'all');
+    }
+
+    renderActiveTab() {
+        if (!this.contentElement) return;
+        this.updateTabBar();
+        if (this.activeTab === 'all') {
+            this.renderAllModelsTab(this.contentElement);
+        } else {
+            this.displayMissingModels(this.contentElement, this.analyzeData || {});
+            this.reconnectActiveDownloads();
+        }
+    }
+
     createContent() {
         this.contentElement = $el("div.ml-scrollable", {
             id: "model-linker-content",
@@ -751,10 +905,13 @@ class LinkerManagerDialog extends ComfyDialog {
     async show(workflow = null) {
         this.backdrop.style.display = "block";
         this.element.style.display = "flex";
-        
+
+        // Re-pick the default tab for each dialog session
+        this.activeTab = null;
+
         // Update button state in case there are active downloads
         this.updateDownloadAllButtonState();
-        
+
         // Use provided workflow or fetch from current graph
         await this.loadWorkflowData(workflow);
     }
@@ -813,6 +970,263 @@ class LinkerManagerDialog extends ComfyDialog {
     }
 
     /**
+     * Short display label for the node referencing a model
+     */
+    getNodeLabel(ref) {
+        const isSubgraphType = ref.node_type &&
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref.node_type);
+        if (ref.subgraph_name) return ref.subgraph_name;
+        if (isSubgraphType) return 'Subgraph';
+        return ref.node_type || 'Node';
+    }
+
+    // ==================== ALL MODELS TAB (browse & swap, issue #4) ====================
+
+    /**
+     * Render the All models tab: every model reference in the workflow,
+     * grouped by category, each swappable to another local file.
+     */
+    renderAllModelsTab(container) {
+        // Bulk actions belong to the Missing tab
+        if (this.autoResolveButton) this.autoResolveButton.style.display = 'none';
+        if (this.downloadAllButton) this.downloadAllButton.style.display = 'none';
+
+        const data = this.analyzeData || {};
+        const entries = [
+            ...(data.missing_models || []).map(m => ({ ...m, __missing: true })),
+            ...(data.resolved_models || []).map(m => ({ ...m, __missing: false }))
+        ];
+
+        if (entries.length === 0) {
+            container.innerHTML = this.renderStatusMessage('No model references found in the current workflow.', 'info');
+            return;
+        }
+
+        this.allModelEntries = entries;
+
+        container.innerHTML = `
+            <div class="ml-all-toolbar">
+                <input id="ml-all-filter" class="ml-filter-input" type="text" placeholder="Filter models...">
+            </div>
+            <div id="ml-all-groups"></div>`;
+
+        const filterInput = container.querySelector('#ml-all-filter');
+        filterInput.value = this.allModelsFilter || '';
+        filterInput.addEventListener('input', () => {
+            this.allModelsFilter = filterInput.value;
+            this.renderAllModelGroups();
+        });
+
+        this.renderAllModelGroups();
+    }
+
+    renderAllModelGroups() {
+        const groupsDiv = this.contentElement?.querySelector('#ml-all-groups');
+        if (!groupsDiv) return;
+
+        const entries = this.allModelEntries || [];
+        const filter = (this.allModelsFilter || '').toLowerCase();
+
+        // Group (filtered) entries by category
+        const groups = {};
+        entries.forEach((entry, index) => {
+            if (filter && !(entry.original_path || '').toLowerCase().includes(filter)) return;
+            const cat = entry.category && entry.category !== 'unknown' ? entry.category : 'other';
+            (groups[cat] = groups[cat] || []).push({ entry, index });
+        });
+
+        const categories = Object.keys(groups).sort();
+        if (categories.length === 0) {
+            groupsDiv.innerHTML = '<div class="ml-no-matches">No models match the filter</div>';
+            return;
+        }
+
+        let html = '';
+        for (const cat of categories) {
+            const items = groups[cat];
+            // Filtering expands everything so results are never hidden
+            const collapsed = !filter && this.collapsedGroups[cat] === true;
+            html += `<div class="ml-group-header" data-cat="${cat}">${collapsed ? '▸' : '▾'} ${cat} (${items.length})</div>`;
+            if (collapsed) continue;
+            for (const { entry, index } of items) {
+                html += this.renderAllModelRow(entry, index);
+            }
+        }
+        groupsDiv.innerHTML = html;
+
+        // Listeners
+        groupsDiv.querySelectorAll('.ml-group-header').forEach(header => {
+            header.addEventListener('click', () => {
+                const cat = header.dataset.cat;
+                this.collapsedGroups[cat] = !this.collapsedGroups[cat];
+                this.renderAllModelGroups();
+            });
+        });
+        groupsDiv.querySelectorAll('[data-jump-index]').forEach(el => {
+            el.addEventListener('click', () => this.jumpToNode(this.allModelEntries[Number(el.dataset.jumpIndex)]));
+        });
+        groupsDiv.querySelectorAll('[data-swap-index]').forEach(el => {
+            el.addEventListener('click', () => this.toggleSwapPanel(Number(el.dataset.swapIndex)));
+        });
+        groupsDiv.querySelectorAll('[data-fix-missing]').forEach(el => {
+            el.addEventListener('click', () => this.switchTab('missing'));
+        });
+    }
+
+    renderAllModelRow(entry, index) {
+        const formatted = this.formatFilename(entry.original_path || '', 50);
+        const refs = entry.all_node_refs || [entry];
+        const extraRefs = refs.length > 1 ? ` (+${refs.length - 1})` : '';
+        const nodeLabel = this.getNodeLabel(entry);
+
+        let html = `<div class="ml-all-row">`;
+        html += `<span class="ml-match-filename" title="${formatted.full}">${formatted.display}</span>`;
+        if (entry.__missing) {
+            html += `<span class="ml-missing-badge">missing</span>`;
+        }
+        html += `<span class="ml-node-chip ml-node-chip-clickable" data-jump-index="${index}" title="Jump to node">${nodeLabel} #${entry.node_id}${extraRefs}</span>`;
+        if (entry.__missing) {
+            html += `<button class="ml-btn ml-btn-secondary ml-btn-sm" data-fix-missing="1" title="Resolve it in the Missing tab">Fix</button>`;
+        } else {
+            html += `<button class="ml-btn ml-btn-secondary ml-btn-sm" data-swap-index="${index}" title="Swap this model for another local file"><span class="ml-btn-icon">⇄</span> Swap</button>`;
+        }
+        html += `</div>`;
+        html += `<div id="all-swap-panel-${index}" class="ml-swap-panel" style="display: none;"></div>`;
+        return html;
+    }
+
+    /**
+     * Open/close the inline swap picker for an All models entry.
+     * Candidates come from /model_linker/models filtered to the categories
+     * the node can actually load from, similarity-sorted to the current file.
+     */
+    async toggleSwapPanel(index) {
+        const entry = (this.allModelEntries || [])[index];
+        const panel = this.contentElement?.querySelector(`#all-swap-panel-${index}`);
+        if (!entry || !panel) return;
+
+        if (panel.style.display !== 'none') {
+            panel.style.display = 'none';
+            panel.innerHTML = '';
+            return;
+        }
+        panel.style.display = 'block';
+        panel.innerHTML = '<div class="ml-no-matches">Loading available files...</div>';
+
+        try {
+            const cats = (entry.expected_categories?.length ? entry.expected_categories : [entry.category])
+                .filter(c => c && c !== 'unknown');
+            const params = new URLSearchParams();
+            if (cats.length) params.set('category', cats.join(','));
+            if (entry.original_path) params.set('current', entry.original_path);
+
+            const response = await api.fetchApi(`/model_linker/models?${params.toString()}`);
+            if (!response.ok) throw new Error(`API error: ${response.status}`);
+            const files = await response.json();
+            if (!Array.isArray(files)) throw new Error(files?.error || 'Unexpected response');
+
+            this.renderSwapPanel(panel, entry, files, cats.length > 0);
+        } catch (error) {
+            console.error('Model Linker: Error loading swap candidates:', error);
+            panel.innerHTML = `<div class="ml-no-matches">Error loading files: ${error.message}</div>`;
+        }
+    }
+
+    renderSwapPanel(panel, entry, files, categoryFiltered) {
+        panel.innerHTML = `
+            <input class="ml-filter-input ml-swap-search" type="text" placeholder="Search ${files.length} file${files.length !== 1 ? 's' : ''}...">
+            <div class="ml-swap-results"></div>`;
+        const search = panel.querySelector('.ml-swap-search');
+        const results = panel.querySelector('.ml-swap-results');
+        const MAX_SHOWN = 50;
+
+        const renderResults = () => {
+            const query = search.value.toLowerCase();
+            const shown = files.filter(f => !query ||
+                (f.relative_path || f.filename || '').toLowerCase().includes(query) ||
+                (f.category || '').toLowerCase().includes(query));
+
+            if (shown.length === 0) {
+                results.innerHTML = '<div class="ml-no-matches">No files match</div>';
+                return;
+            }
+
+            let html = '';
+            shown.slice(0, MAX_SHOWN).forEach(f => {
+                const isCurrent = entry.full_path && f.path === entry.full_path;
+                const label = f.relative_path || f.filename || '';
+                const catChip = categoryFiltered ? '' : `<span class="ml-category-chip">${f.category || ''}</span>`;
+                html += `<div class="ml-swap-row">`;
+                html += `<span class="ml-match-filename" title="${f.path || ''}">${label}</span>${catChip}`;
+                html += isCurrent
+                    ? `<span class="ml-current-badge">current</span>`
+                    : `<button class="ml-btn ml-btn-primary ml-btn-sm" data-swap-path="${encodeURIComponent(f.path || '')}">Select</button>`;
+                html += `</div>`;
+            });
+            if (shown.length > MAX_SHOWN) {
+                html += `<div class="ml-no-matches">${shown.length - MAX_SHOWN} more - refine the search</div>`;
+            }
+            results.innerHTML = html;
+
+            results.querySelectorAll('[data-swap-path]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const path = decodeURIComponent(btn.dataset.swapPath);
+                    const file = files.find(f => f.path === path);
+                    if (file) this.applySwap(entry, file);
+                });
+            });
+        };
+
+        search.addEventListener('input', renderResults);
+        renderResults();
+    }
+
+    /**
+     * Swap a model for another file across every node that references it.
+     */
+    async applySwap(entry, file) {
+        try {
+            const workflow = this.getCurrentWorkflow();
+            if (!workflow) {
+                this.showNotification('No workflow loaded', 'error');
+                return;
+            }
+
+            const refs = entry.all_node_refs || [entry];
+            const resolutions = refs.map(ref => ({
+                node_id: ref.node_id,
+                widget_index: ref.widget_index,
+                resolved_path: file.path,
+                category: ref.category,
+                resolved_model: file,
+                subgraph_id: ref.subgraph_id,
+                is_top_level: ref.is_top_level
+            }));
+
+            const response = await api.fetchApi('/model_linker/resolve', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ workflow, resolutions })
+            });
+            if (!response.ok) throw new Error(`API error: ${response.status}`);
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error || 'Unknown error');
+
+            // Apply to the live graph in place (no canvas rebuild)
+            await this.updateWorkflowInComfyUI(data.workflow, resolutions);
+
+            const oldName = this.formatFilename(entry.original_path || '', 40).display;
+            this.showNotification(`✓ Swapped ${oldName} → ${file.filename} (${refs.length} node${refs.length > 1 ? 's' : ''})`, 'success');
+
+            // Refresh with the updated workflow; stays on the All models tab
+            await this.loadWorkflowData(data.workflow);
+        } catch (error) {
+            console.error('Model Linker: Error swapping model:', error);
+            this.showNotification('Error swapping model: ' + error.message, 'error');
+        }
+    }
+
+    /**
      * Load workflow data and display missing models
      */
     async loadWorkflowData(workflow = null) {
@@ -832,11 +1246,11 @@ class LinkerManagerDialog extends ComfyDialog {
                 return;
             }
 
-            // Call analyze endpoint
+            // Call analyze endpoint (include resolved models for the All models tab)
             const response = await api.fetchApi('/model_linker/analyze', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ workflow })
+                body: JSON.stringify({ workflow, include_resolved: true })
             });
 
             if (!response.ok) {
@@ -844,10 +1258,17 @@ class LinkerManagerDialog extends ComfyDialog {
             }
 
             const data = await response.json();
-            this.displayMissingModels(this.contentElement, data);
-            
-            // Reconnect any active downloads to their new progress divs
-            this.reconnectActiveDownloads();
+            this.analyzeData = data;
+
+            // First load of a dialog session: default to the Missing tab when
+            // there's something to fix (or downloads running), else All models
+            if (!this.activeTab) {
+                const hasMissing = (data.missing_models || []).length > 0;
+                const hasDownloads = Object.keys(this.activeDownloads).length > 0;
+                this.activeTab = (hasMissing || hasDownloads) ? 'missing' : 'all';
+            }
+
+            this.renderActiveTab();
 
         } catch (error) {
             console.error('Model Linker: Error loading workflow data:', error);

@@ -14,6 +14,7 @@ https://github.com/user-attachments/assets/fedf3645-aa66-49f7-b01d-8c3b5127faf4
 - **Cross-platform paths** — workflows authored on Windows match on Linux and vice versa (`\` vs `/` is handled)
 - **Folder-aware suggestions** — a file sitting in a folder the node can't load from is flagged with a "wrong folder" warning instead of silently failing at prompt time
 - **Auto-resolve** — one click links every perfect match; also available directly from ComfyUI's native Missing Models popup
+- **Browse & swap** — the All models tab lists every model in the workflow grouped by category; swap any of them for another local file without hunting through the node tree, applied to all referencing nodes at once
 - **Downloads** — fetches missing models from HuggingFace/CivitAI (URLs from the workflow, a model database, or online search), with progress, speed display, bulk download, and cancel
 - **Safe updates** — resolved models are applied to the live graph in place (no canvas rebuild); you save the workflow yourself when ready
 

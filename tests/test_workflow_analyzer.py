@@ -76,6 +76,8 @@ sys.modules['nodes'] = nodes_mod
 from core.workflow_analyzer import (  # noqa: E402
     get_node_model_categories,
     get_node_model_info,
+    group_models_by_file,
+    identify_missing_models,
     try_resolve_model_path,
 )
 
@@ -125,6 +127,30 @@ def test_resolve_handles_both_separator_styles():
     # Issue #8: workflows authored on the other OS use the other separator
     assert try_resolve_model_path('sub/other.safetensors', ['diffusion_models']) is not None
     assert try_resolve_model_path('sub\\other.safetensors', ['diffusion_models']) is not None
+
+
+def test_group_models_by_file():
+    refs = [
+        {'node_id': 1, 'widget_index': 0, 'original_path': 'a.safetensors', 'exists': False},
+        {'node_id': 2, 'widget_index': 1, 'original_path': 'a.safetensors', 'exists': False},
+        {'node_id': 3, 'widget_index': 0, 'original_path': 'b.safetensors', 'exists': True},
+    ]
+
+    missing = group_models_by_file(refs, exists_filter=False)
+    assert len(missing) == 1
+    assert missing[0]['original_path'] == 'a.safetensors'
+    assert len(missing[0]['all_node_refs']) == 2
+    assert [r['node_id'] for r in missing[0]['all_node_refs']] == [1, 2]
+
+    resolved = group_models_by_file(refs, exists_filter=True)
+    assert len(resolved) == 1
+    assert resolved[0]['original_path'] == 'b.safetensors'
+
+    everything = group_models_by_file(refs)
+    assert len(everything) == 2
+
+    # identify_missing_models must behave exactly as before the refactor
+    assert identify_missing_models(refs) == missing
 
 
 def test_known_node_type_still_uses_hint():

@@ -12,7 +12,7 @@ from typing import Dict, Any, List, Optional, Tuple
 from urllib.parse import unquote
 
 from .scanner import get_model_files
-from .workflow_analyzer import analyze_workflow_models, identify_missing_models
+from .workflow_analyzer import analyze_workflow_models, identify_missing_models, group_models_by_file
 from .matcher import find_matches
 from .workflow_updater import update_workflow_nodes
 
@@ -162,7 +162,8 @@ def parse_huggingface_url(url: str) -> Tuple[Optional[str], Optional[str]]:
 def analyze_and_find_matches(
     workflow_json: Dict[str, Any],
     similarity_threshold: float = 0.0,
-    max_matches_per_model: int = 10
+    max_matches_per_model: int = 10,
+    include_resolved: bool = False
 ) -> Dict[str, Any]:
     """
     Main entry point: analyze workflow and find matches for missing models.
@@ -293,11 +294,17 @@ def analyze_and_find_matches(
             'matches': deduplicated_matches
         })
     
-    return {
+    result = {
         'missing_models': missing_with_matches,
         'total_missing': len(missing_with_matches),
         'total_models_analyzed': len(all_model_refs)
     }
+
+    if include_resolved:
+        # Grouped resolved references for the "All models" browse/swap view
+        result['resolved_models'] = group_models_by_file(all_model_refs, exists_filter=True)
+
+    return result
 
 
 def apply_resolution(

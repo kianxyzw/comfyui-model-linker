@@ -57,6 +57,7 @@ class ModelLinkerExtension:
             try:
                 from .core.linker import analyze_and_find_matches, apply_resolution
                 from .core.scanner import get_model_files
+                from .core.matcher import find_matches
             except ImportError as e:
                 self.logger.error(f"Model Linker: Could not import core modules: {e}")
                 return False
@@ -92,7 +93,8 @@ class ModelLinkerExtension:
                         )
                     
                     # Analyze and find matches
-                    result = analyze_and_find_matches(workflow_json)
+                    include_resolved = bool(data.get('include_resolved', False))
+                    result = analyze_and_find_matches(workflow_json, include_resolved=include_resolved)
                     
                     # If download available, auto-search for download sources when no 100% local match
                     if download_available:
@@ -235,9 +237,28 @@ class ModelLinkerExtension:
             
             @routes.get("/model_linker/models")
             async def get_models(request):
-                """Get list of all available models."""
+                """Get list of available models.
+
+                Optional query params (used by the All models swap picker):
+                - category: comma-separated category names to filter by
+                - current: a filename; results are sorted by similarity to it
+                """
                 try:
                     models = get_model_files()
+
+                    category_param = request.query.get('category', '')
+                    if category_param:
+                        wanted = {c.strip() for c in category_param.split(',') if c.strip()}
+                        models = [m for m in models if m.get('category') in wanted]
+
+                    current = request.query.get('current', '')
+                    if current and models:
+                        ranked = find_matches(current, models, threshold=0.0, max_results=len(models))
+                        models = [
+                            {**match['model'], 'confidence': match['confidence']}
+                            for match in ranked
+                        ]
+
                     return web.json_response(models)
                 except Exception as e:
                     self.logger.error(f"Model Linker get_models error: {e}", exc_info=True)
