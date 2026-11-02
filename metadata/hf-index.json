@@ -1392,6 +1392,34 @@
 "sha256": "868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3"
 },
 {
+"repo_id": "Comfy-Org/Idol",
+"path": "clip_vision/dino_v3_vit_h_bf16.safetensors",
+"filename": "dino_v3_vit_h_bf16.safetensors",
+"size": 1681247696,
+"sha256": "a29ef35101a16966972a0d50732a6f3a608ff7cfffb2afa9bbe9007cb842cc53"
+},
+{
+"repo_id": "Comfy-Org/Idol",
+"path": "diffusion_models/idol_fp16.safetensors",
+"filename": "idol_fp16.safetensors",
+"size": 741106994,
+"sha256": "9abf6a99fc6bdad701901b12de8fe1b256f02cae4948f7489d25d86b11b52a93"
+},
+{
+"repo_id": "Comfy-Org/Idol",
+"path": "vae/flux2-vae.safetensors",
+"filename": "flux2-vae.safetensors",
+"size": 336211292,
+"sha256": "868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3"
+},
+{
+"repo_id": "Comfy-Org/Idol",
+"path": "vae/idol_decoder_fp16.safetensors",
+"filename": "idol_decoder_fp16.safetensors",
+"size": 576148442,
+"sha256": "6a146a1e6b2653f74422f7ea835eb8715c547c7de8fc4545051f15c247ae54a9"
+},
+{
 "repo_id": "Comfy-Org/JoyAI-Image-Edit",
 "path": "diffusion_models/joyai_image_edit_bf16.safetensors",
 "filename": "joyai_image_edit_bf16.safetensors",
@@ -1453,6 +1481,13 @@
 "filename": "krea2_turbo_bf16.safetensors",
 "size": 26283332608,
 "sha256": "78bbf8f4165eda19cea3cb06c78089221932a39e2eed8af9da741f942c47ffb3"
+},
+{
+"repo_id": "Comfy-Org/Krea-2",
+"path": "diffusion_models/krea2_turbo_fp8.safetensors",
+"filename": "krea2_turbo_fp8.safetensors",
+"size": 12900096996,
+"sha256": "2d3523507c59df965e5d4ec9a1b9b4591297a50c058915c36fb29d124d30f64e"
 },
 {
 "repo_id": "Comfy-Org/Krea-2",
@@ -1841,8 +1876,8 @@
 },
 {
 "repo_id": "Comfy-Org/Ming-3.0-TTS",
-"path": "checkpoints/ming_tts_tiny_int8_convrot.safetensors",
-"filename": "ming_tts_tiny_int8_convrot.safetensors",
+"path": "checkpoints/ming3_tts_tiny_int8_convrot.safetensors",
+"filename": "ming3_tts_tiny_int8_convrot.safetensors",
 "size": 9069165598,
 "sha256": "37d83a48dcb20d989c48313e93f0f0876a3c81d570966c2442409cf302a03e53"
 },
@@ -2093,6 +2128,20 @@
 },
 {
 "repo_id": "Comfy-Org/MiniMax-H3",
+"path": "loras/pika_h3_flex_fl2va_v1_bf16.safetensors",
+"filename": "pika_h3_flex_fl2va_v1_bf16.safetensors",
+"size": 1956172304,
+"sha256": "cc5453aeecd6189468409003fe4cf1b57e52ff3a830a0a154b87decbe07358b7"
+},
+{
+"repo_id": "Comfy-Org/MiniMax-H3",
+"path": "loras/pika_h3_flex_ref2va_v1_bf16.safetensors",
+"filename": "pika_h3_flex_ref2va_v1_bf16.safetensors",
+"size": 1956172304,
+"sha256": "de3745ceb7d8d5c20898dd8fa3a05f1c0b00089ccd55297b2a8bab95c766b0e0"
+},
+{
+"repo_id": "Comfy-Org/MiniMax-H3",
 "path": "model_patches/minimax_h3_fun_controlnet_union_2.0_pruned_bf16.safetensors",
 "filename": "minimax_h3_fun_controlnet_union_2.0_pruned_bf16.safetensors",
 "size": 8382288792,
@@ -2146,6 +2195,20 @@
 "filename": "minimax_h3_audio_vae_fp32.safetensors",
 "size": 605254808,
 "sha256": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48"
+},
+{
+"repo_id": "Comfy-Org/MiniMax-H3",
+"path": "vae/minimax_h3_sol_vae_fp16.safetensors",
+"filename": "minimax_h3_sol_vae_fp16.safetensors",
+"size": 3596335728,
+"sha256": "61eaab3d7ca1659f20bce4d02bbc5bd5e5af608c73328d30cda96c8dc4d033e0"
+},
+{
+"repo_id": "Comfy-Org/MiniMax-H3",
+"path": "vae/minimax_h3_sol_vae_int8_convrot.safetensors",
+"filename": "minimax_h3_sol_vae_int8_convrot.safetensors",
+"size": 1988306504,
+"sha256": "a742069ba173bc3aba64cf8d8289d073e0818f2753f2fc2768f0342645089682"
 },
 {
 "repo_id": "Comfy-Org/MiniMax-H3",
@@ -2734,6 +2797,34 @@
 "filename": "qwen_image_2.1_turbo_int8_convrot.safetensors",
 "size": 7256787829,
 "sha256": "8144a0182964aa8403ad6dbc011db837304167d235161b9aabaa8532e967314c"
+},
+{
+"repo_id": "Comfy-Org/Qwen-Image-2.1",
+"path": "loras/p_q_image_2.1_5_steps_v0.1_comfyui_bf16.safetensors",
+"filename": "p_q_image_2.1_5_steps_v0.1_comfyui_bf16.safetensors",
+"size": 335621080,
+"sha256": "1e6bf020221d890bfd838f99f1136a4cacc33a07a14752d583ed99e7c35673c6"
+},
+{
+"repo_id": "Comfy-Org/Qwen-Image-2.1",
+"path": "loras/p_q_image_2.1_6_steps_upsampled_v0.2_comfyui_bf16.safetensors",
+"filename": "p_q_image_2.1_6_steps_upsampled_v0.2_comfyui_bf16.safetensors",
+"size": 344061264,
+"sha256": "b10e6231bebc4852d921f168366fdb0f495ff867bcabd592a0626ca11dba7561"
+},
+{
+"repo_id": "Comfy-Org/Qwen-Image-2.1",
+"path": "loras/p_q_image_2.1_6_steps_v0.2_comfyui_bf16.safetensors",
+"filename": "p_q_image_2.1_6_steps_v0.2_comfyui_bf16.safetensors",
+"size": 344061256,
+"sha256": "683877d06c234b8bd8b870855b38b914642a41d050593db7661faf57d66596b0"
+},
+{
+"repo_id": "Comfy-Org/Qwen-Image-2.1",
+"path": "loras/p_q_image_2.1_8_steps_v0.1_comfyui_bf16.safetensors",
+"filename": "p_q_image_2.1_8_steps_v0.1_comfyui_bf16.safetensors",
+"size": 335621112,
+"sha256": "0c9ff10dc5f8007ed53db3e9084f7082b60d5c82d4e2eb74326048e0d55740eb"
 },
 {
 "repo_id": "Comfy-Org/Qwen-Image-2.1",
@@ -6118,6 +6209,20 @@
 },
 {
 "repo_id": "Kijai/MiniMax-H3-experimental",
+"path": "loras/minimax_h3_open_regenerate_2k_refiner_rank_16_bf16.safetensors",
+"filename": "minimax_h3_open_regenerate_2k_refiner_rank_16_bf16.safetensors",
+"size": 155133472,
+"sha256": "add559cd92e2b17b42ac080516b476df120903e485fc98add4538e0217820fbd"
+},
+{
+"repo_id": "Kijai/MiniMax-H3-experimental",
+"path": "loras/minimax_h3_open_regenerate_2k_refiner_rank_384_bf16.safetensors",
+"filename": "minimax_h3_open_regenerate_2k_refiner_rank_384_bf16.safetensors",
+"size": 5868409512,
+"sha256": "4bf30291343eef5e51ee867ba37dd31bce3133d1da1ace1a245a7130b88818c2"
+},
+{
+"repo_id": "Kijai/MiniMax-H3-experimental",
 "path": "loras/minimax_h3_pdmd_2step_lora_avg_rank_38_bf16.safetensors",
 "filename": "minimax_h3_pdmd_2step_lora_avg_rank_38_bf16.safetensors",
 "size": 381015376,
@@ -6234,6 +6339,20 @@
 "filename": "minimax_h3_ref2va_pruned_w6a8_g32.safetensors",
 "size": 16753960844,
 "sha256": "565519608d06ceb206859522a6514c4470951ae59a761f23f557b5f81900db01"
+},
+{
+"repo_id": "Kijai/MiniMax-H3_comfy",
+"path": "loras/Pika/pika_h3_flex_fl2va_v1_avg_rank_56_bf16.safetensors",
+"filename": "pika_h3_flex_fl2va_v1_avg_rank_56_bf16.safetensors",
+"size": 559266144,
+"sha256": "fdaec425c8795efad58c4dff52d5fcc061d6b19c4c7a1e08acb4cd090e73c540"
+},
+{
+"repo_id": "Kijai/MiniMax-H3_comfy",
+"path": "loras/Pika/pika_h3_flex_ref2va_v1_avg_rank_55_bf16.safetensors",
+"filename": "pika_h3_flex_ref2va_v1_avg_rank_55_bf16.safetensors",
+"size": 553202008,
+"sha256": "7b5a7e707860412c214559666c6283cde2cddc79e13e124007fa47a5392352da"
 },
 {
 "repo_id": "Kijai/MiniMax-H3_comfy",
